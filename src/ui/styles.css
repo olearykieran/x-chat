@@ -1,0 +1,570 @@
+/* Base styles */
+:root {
+  --bg-color: #000000; /* Black background */
+  --text-color: #E7E9EA; /* Light text color (X.com default) */
+  --text-secondary: #8B98A5; /* X.com secondary text color */
+  --border-color: #38444D; /* X.com input border */
+  --primary-color: rgb(29, 155, 240); /* X.com primary blue */
+  --hover-color: #15181C; /* Dark input background */
+  --success-color: #17BF63;
+  --danger-color: #E0245E;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --border-radius: 6px;
+  --border-radius-sm: 6px;
+  --transition: all 0.2s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  line-height: 1.5;
+  overflow-x: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 16px; /* Add some padding to the content area */
+  overflow-y: auto; /* Allow content to scroll if it overflows */
+}
+
+/* Header */
+.header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tab {
+  flex: 1;
+  padding: 12px;
+  text-align: center;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: var(--transition);
+}
+
+.tab.active {
+  border-bottom: 2px solid var(--primary-color);
+  font-weight: bold;
+}
+
+.tab:hover:not(.active) {
+  background-color: var(--hover-color);
+}
+
+/* Content area */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tweet card */
+.tweet-card {
+  background-color: var(--hover-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.tweet-author {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.tweet-text {
+  color: var(--text-color);
+}
+
+/* Message bubbles */
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.message {
+  max-width: 85%;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  position: relative;
+}
+
+.message.ai {
+  background-color: var(--hover-color);
+  align-self: flex-start;
+  border: 1px solid var(--border-color);
+}
+
+.message.user {
+  background-color: var(--primary-color);
+  align-self: flex-end;
+}
+
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.message-button {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 4px 8px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 12px;
+  transition: var(--transition);
+}
+
+.message-button:hover {
+  background-color: var(--primary-color);
+}
+
+/* Input area */
+.input-area {
+  margin-top: auto;
+  border-top: 1px solid var(--border-color);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tone-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tone-option {
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.tone-option.active {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.input-container {
+  display: flex;
+  align-items: flex-end;
+}
+
+.input-box {
+  flex: 1;
+  background-color: var(--hover-color);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  min-height: 40px;
+  padding: 8px 12px;
+  color: var(--text-color);
+  resize: none;
+  outline: none;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.send-button {
+  background-color: var(--primary-color);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.send-button:hover {
+  transform: scale(1.05);
+}
+
+.send-button:active {
+  transform: scale(0.95);
+}
+
+/* Settings */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.settings-panel {
+  background-color: var(--bg-color);
+  border-radius: var(--border-radius);
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.settings-title {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.close-button {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+
+.form-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.form-input {
+  width: 100%;
+  background-color: var(--hover-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 8px 12px;
+  color: var(--text-color);
+  outline: none;
+}
+
+.form-textarea {
+  width: 100%;
+  background-color: var(--hover-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 8px 12px;
+  color: var(--text-color);
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+}
+
+.api-key-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--hover-color);
+  border-radius: var(--border-radius-sm);
+}
+
+.api-key-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.premium-description {
+  display: none;
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--hover-color);
+  border-radius: var(--border-radius-sm);
+  border-left: 3px solid var(--primary-color);
+}
+
+.premium-description ul {
+  margin: 8px 0 0 20px;
+  color: var(--text-secondary);
+}
+
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tag {
+  background-color: var(--hover-color);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-remove {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.tag-remove:hover {
+  background-color: var(--danger-color);
+}
+
+.save-button {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+  width: 100%;
+  font-weight: bold;
+  transition: var(--transition);
+}
+
+.save-button:hover {
+  background-color: #1a91da;
+}
+
+/* Button styles */
+.xco-btn {
+  background-color: var(--primary-color);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 9999px;
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  text-align: center;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease;
+}
+
+.xco-btn:hover {
+  background-color: rgb(26, 140, 216);
+}
+
+.xco-btn:active {
+  background-color: rgb(23, 125, 193);
+}
+
+/* Specific button IDs if needed for minor tweaks, but prefer class-based styling */
+#saveSettingsButton, 
+#trainVoiceButton, 
+#updateInterestsButton {
+  /* Inherits from .xco-btn. Add specific overrides here if necessary */
+  /* For example, if one button should be a different color: */
+  /* background-color: #some-other-color; */
+}
+
+/* Styling for the settings panel sections */
+.settings-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #2F3336;
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.settings-section h3 {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: var(--text-color);
+}
+
+/* Container for API Key and Premium info to align them */
+.api-key-container p, .premium-info-container p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.premium-info-container ul {
+  list-style-type: disc;
+  margin-left: 20px;
+  padding-left: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.premium-info-container ul li {
+  margin-bottom: 4px;
+}
+
+/* Loading states */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+}
+
+.empty-state-text {
+  font-size: 16px;
+  max-width: 300px;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .header-title {
+    font-size: 16px;
+  }
+  
+  .message {
+    max-width: 90%;
+  }
+}
