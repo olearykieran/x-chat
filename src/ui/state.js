@@ -1,11 +1,11 @@
 import { DEFAULT_SETTINGS, TONE_OPTIONS } from '../../lib/constants.js';
 
 // Application state
-let state = {
+let currentState = {
   // UI state
   activeTab: 'reply', // 'reply' or 'compose'
   settingsOpen: false,
-  loading: false,
+  loading: true, // Start with loading true for initial setup
   error: null,
   message: null, // Success message
   isRecording: false, // Added for voice input state
@@ -15,6 +15,8 @@ let state = {
   currentTweet: null,
   trendingTopics: [],
   tweetIdeas: [],
+  generatedPosts: [], // For the schedule tab
+  isGeneratingPosts: false, // For the schedule tab
   
   // User settings
   settings: { ...DEFAULT_SETTINGS },
@@ -33,15 +35,23 @@ const listeners = [];
  * Initialize application state
  */
 export async function initializeState() {
+  updateState({ loading: true, error: null });
   try {
-    // Load settings from storage
+    await loadDataFromStorage();
+
     chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (response) => {
+      let currentSettings = getState().settings || {}; // Get current settings (might have apiKey from loadDataFromStorage)
       if (response && response.settings) {
-        updateState({ settings: response.settings });
+        // Merge settings from GET_SETTINGS, ensuring apiKey from loadDataFromStorage isn't overwritten by an undefined one
+        const newSettingsFromBg = response.settings;
+        currentSettings = { ...currentSettings, ...newSettingsFromBg };
+        if (newSettingsFromBg.apiKey === undefined && getState().settings.apiKey !== undefined) {
+          currentSettings.apiKey = getState().settings.apiKey; // Preserve already loaded apiKey if bg doesn't send one
+        }
       }
+      updateState({ settings: currentSettings, loading: false });
     });
-    
-    // Check for current tweet
+
     checkCurrentContext();
     
     // Listen for tweet focus changes from content script
@@ -84,7 +94,7 @@ export async function initializeState() {
     });
   } catch (error) {
     console.error('Error initializing state:', error);
-    updateState({ error: 'Failed to initialize. Please try again.' });
+    updateState({ error: 'Failed to initialize. Please try again.', loading: false });
   }
 }
 
@@ -168,7 +178,7 @@ async function fetchTrendingAndGenerateIdeas() {
         chrome.runtime.sendMessage({ 
           type: 'GENERATE_TWEET_IDEAS',
           trending: response.trending,
-          tone: state.selectedTone
+          tone: currentState.selectedTone
         }, (ideaResponse) => {
           updateState({ loading: false });
           
@@ -198,15 +208,15 @@ async function fetchTrendingAndGenerateIdeas() {
  * Generate reply for current tweet
  */
 function generateReply() {
-  if (!state.currentTweet) return;
+  if (!currentState.currentTweet) return;
   
   updateState({ loading: true });
   
   try {
     chrome.runtime.sendMessage({ 
       type: 'GENERATE_REPLY',
-      tweetData: state.currentTweet,
-      tone: state.selectedTone
+      tweetData: currentState.currentTweet,
+      tone: currentState.selectedTone
     }, (response) => {
       updateState({ loading: false });
       
@@ -230,7 +240,7 @@ function generateReply() {
  */
 export function prepareForNewAiReply() {
   updateState({
-    messages: state.messages.filter(msg => msg.sender !== 'ai'), // Keep only user messages or non-AI messages
+    messages: currentState.messages.filter(msg => msg.sender !== 'ai'), // Keep only user messages or non-AI messages
     loading: true,
     error: null
   });
@@ -250,7 +260,7 @@ export function addMessage(sender, text) {
   };
   
   updateState({
-    messages: [...state.messages, newMessage]
+    messages: [...currentState.messages, newMessage]
   });
 }
 
@@ -267,15 +277,15 @@ export function sendMessage(text) {
   // Clear input
   updateState({ currentInput: '', loading: true });
   
-  if (state.activeTab === 'reply') {
+  if (currentState.activeTab === 'reply') {
     // Get AI to refine reply
     chrome.runtime.sendMessage({
       type: 'GENERATE_REPLY',
       tweetData: {
-        ...state.currentTweet,
+        ...currentState.currentTweet,
         userInstruction: text
       },
-      tone: state.selectedTone
+      tone: currentState.selectedTone
     }, (response) => {
       updateState({ loading: false });
       
@@ -289,9 +299,9 @@ export function sendMessage(text) {
     // Generate tweet based on user instruction
     chrome.runtime.sendMessage({
       type: 'GENERATE_TWEET_IDEAS',
-      trending: state.trendingTopics,
+      trending: currentState.trendingTopics,
       userInstruction: text,
-      tone: state.selectedTone
+      tone: currentState.selectedTone
     }, (response) => {
       updateState({ loading: false });
       
@@ -314,7 +324,7 @@ export function useText(text) {
   
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs[0]) {
-      const messageType = state.activeTab === 'reply' ? 'USE_REPLY' : 'USE_TWEET';
+      const messageType = currentState.activeTab === 'reply' ? 'USE_REPLY' : 'USE_TWEET';
       chrome.tabs.sendMessage(tabs[0].id, { 
         type: messageType,
         text
@@ -331,9 +341,9 @@ export function changeTone(tone) {
   updateState({ selectedTone: tone });
   
   // Regenerate based on active tab
-  if (state.activeTab === 'reply' && state.currentTweet) {
+  if (currentState.activeTab === 'reply' && currentState.currentTweet) {
     generateReply();
-  } else if (state.activeTab === 'compose') {
+  } else if (currentState.activeTab === 'compose') {
     fetchTrendingAndGenerateIdeas();
   }
 }
@@ -343,6 +353,9 @@ export function changeTone(tone) {
  * @param {Object} newSettings - Updated settings
  */
 export function saveSettings(newSettings) {
+  console.log('[State] saveSettings called with newSettings:', JSON.parse(JSON.stringify(newSettings)));
+  // The newSettings from Settings.js should NOT contain apiKey anymore.
+  // It will contain profileBio, hashtags, defaultTone, useOwnKey.
   chrome.runtime.sendMessage({ 
     type: 'SAVE_SETTINGS',
     settings: newSettings
@@ -359,35 +372,21 @@ export function saveSettings(newSettings) {
  * @param {string} apiKey - OpenAI API key
  */
 export function saveApiKey(apiKey) {
-  updateState({ loading: true, error: null });
-  
-  chrome.runtime.sendMessage({ 
-    type: 'SAVE_API_KEY',
-    apiKey
-  }, (response) => {
-    updateState({ loading: false });
-    
+  console.log('[State] saveApiKey called with key:', apiKey ? "(key provided)" : "(key empty or null)");
+  chrome.runtime.sendMessage({ type: 'SAVE_API_KEY', apiKey: apiKey }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('[State] saveApiKey: Error sending SAVE_API_KEY message:', chrome.runtime.lastError.message);
+      return;
+    }
+
+    console.log('[State] saveApiKey: Response from SAVE_API_KEY in background:', response);
     if (response && response.success) {
-      updateState({ 
-        settings: { ...state.settings, apiKey },
-        error: null
-      });
-      // Give visual feedback that API key was saved
-      updateState({ message: 'API key saved successfully!' });
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        updateState({ message: null });
-      }, 3000);
-      
-      // If compose tab is active, re-fetch ideas with the new key
-      if (getState().activeTab === 'compose') {
-        fetchTrendingAndGenerateIdeas();
-      }
+      console.log('[State] saveApiKey: Background reported success. Attempting to update UI state.');
+      const newSettings = { ...currentState.settings, apiKey: apiKey }; 
+      updateState({ settings: newSettings }); 
+      console.log(`[State] saveApiKey: UI state for settings.apiKey should now be: ${apiKey ? "(key provided)" : "(key empty or null)"}. Current actual currentState.settings.apiKey:`, currentState.settings.apiKey);
     } else {
-      console.error('Failed to save API key:', response?.error || 'Unknown error');
-      updateState({ 
-        error: response?.error || 'Failed to save API key. Please try again.'
-      });
+      console.error('[State] saveApiKey: Background script failed to save API Key or response was not success.', response);
     }
   });
 }
@@ -396,7 +395,7 @@ export function saveApiKey(apiKey) {
  * Toggle settings panel
  */
 export function toggleSettings() {
-  updateState({ settingsOpen: !state.settingsOpen });
+  updateState({ settingsOpen: !currentState.settingsOpen });
 }
 
 /**
@@ -406,7 +405,7 @@ export function toggleSettings() {
 export function switchTab(tab) {
   updateState({ activeTab: tab });
   
-  if (tab === 'compose' && state.tweetIdeas.length === 0) {
+  if (tab === 'compose' && currentState.tweetIdeas.length === 0) {
     fetchTrendingAndGenerateIdeas();
   }
 }
@@ -448,7 +447,20 @@ export function setInputPlaceholder(text) {
  * @param {Object} updates - State updates
  */
 export function updateState(updates) {
-  state = { ...state, ...updates };
+  console.log('[State] Update State Called With:', updates);
+  if (updates.settings) {
+    console.log('[State] updateState: Updating settings. Current settings before update:', JSON.parse(JSON.stringify(currentState.settings)));
+    currentState.settings = { ...currentState.settings, ...updates.settings };
+    console.log('[State] updateState: Settings after update:', JSON.parse(JSON.stringify(currentState.settings)));
+  } else {
+    // Ensure currentState is an object before spreading
+    if (typeof currentState !== 'object' || currentState === null) {
+      console.error('[State] updateState: currentState is not an object. Initializing to empty object before merge.');
+      currentState = {};
+    }
+    currentState = { ...currentState, ...updates };
+  }
+  console.log('[State] Current State After Update:', JSON.parse(JSON.stringify(currentState)));
   notifyListeners();
 }
 
@@ -473,7 +485,16 @@ export function subscribe(listener) {
  * Notify all listeners of state change
  */
 function notifyListeners() {
-  listeners.forEach(listener => listener(state));
+  console.log('[State] notifyListeners called. Number of listeners:', listeners.length);
+  listeners.forEach((listener, index) => {
+    try {
+      console.log(`[State] Notifying listener ${index + 1}...`);
+      listener(currentState);
+    } catch (e) {
+      console.error(`[State] Error in listener ${index + 1}:`, e);
+    }
+  });
+  console.log('[State] notifyListeners finished.');
 }
 
 /**
@@ -481,5 +502,76 @@ function notifyListeners() {
  * @returns {Object} - Current state
  */
 export function getState() {
-  return state;
+  return currentState;
+}
+
+/**
+ * Set generated posts
+ * @param {Array} posts - Posts to set
+ */
+export function setGeneratedPosts(posts) {
+  updateState({ generatedPosts: posts });
+}
+
+/**
+ * Set is generating posts
+ * @param {boolean} isLoading - True if generating, false otherwise
+ */
+export function setIsGeneratingPosts(isLoading) {
+  updateState({ isGeneratingPosts: isLoading });
+}
+
+/**
+ * Set error message
+ * @param {string | null} errorMessage - Error message to set, or null to clear
+ */
+export function setError(errorMessage) {
+  updateState({ error: errorMessage, message: null }); // Clear positive message when error occurs
+}
+
+/**
+ * Set success/info message
+ * @param {string | null} successMessage - Message to set, or null to clear
+ */
+export function setMessage(successMessage) {
+  updateState({ message: successMessage, error: null }); // Clear error message when positive message occurs
+}
+
+/**
+ * Function to load data from storage
+ */
+export async function loadDataFromStorage() {
+  return new Promise((resolve, reject) => {
+    chrome.storage.sync.get(['apiKey', 'settings', 'isPremium'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('[State.js] loadDataFromStorage: Error loading data from storage:', chrome.runtime.lastError.message);
+        updateState({ error: `Error loading settings: ${chrome.runtime.lastError.message}` });
+        // Don't set loading: false here; initializeState handles overall loading state.
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      
+      console.log('[State.js] loadDataFromStorage: Data retrieved from sync:', result);
+      const newStateUpdate = {};
+      let updatedAppSettings = { ...(getState().settings || DEFAULT_SETTINGS) };
+
+      if (result.apiKey !== undefined) {
+        updatedAppSettings.apiKey = result.apiKey;
+        console.log('[State.js] loadDataFromStorage: API Key applied to settings object:', result.apiKey);
+      }
+
+      if (result.settings) { // These are other settings like bio, tone, etc.
+        updatedAppSettings = { ...updatedAppSettings, ...result.settings };
+        console.log('[State.js] loadDataFromStorage: Other settings merged:', result.settings);
+      }
+      newStateUpdate.settings = updatedAppSettings;
+
+      if (result.isPremium !== undefined) {
+        newStateUpdate.isPremium = result.isPremium;
+      }
+      
+      updateState(newStateUpdate);
+      resolve();
+    });
+  });
 }

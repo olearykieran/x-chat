@@ -1,12 +1,14 @@
-import { subscribe, getState, sendMessage, changeTone, toggleSettings, useText, switchTab, prepareForNewAiReply, setCurrentInputText, setRecordingState, setLoadingState, setInputPlaceholder } from '../state.js';
+import { subscribe, getState, sendMessage, changeTone, toggleSettings, useText, switchTab, prepareForNewAiReply, setCurrentInputText, setRecordingState, setLoadingState, setInputPlaceholder, setGeneratedPosts, setIsGeneratingPosts, setError, setMessage, updateState } from '../state.js';
 import { renderHeader } from './Header.js';
 import { renderTabs } from './Tabs.js';
 import { renderReplyTab } from './ReplyTab.js';
 import { renderComposeTab } from './ComposeTab.js';
 import { renderSettingsPanel } from './Settings.js';
+import { renderSchedulePanel } from './Schedule.js'; // Import SchedulePanel
 import { renderInputArea } from './InputArea.js';
 import { renderLoadingIndicator } from './LoadingIndicator.js';
 import { renderErrorMessage } from './ErrorMessage.js';
+import { generateScheduledPosts } from '../../../lib/api.js'; // Corrected path
 
 let root = null;
 let mediaRecorder = null;
@@ -33,6 +35,7 @@ function render() {
   if (!root) return;
   
   const state = getState();
+  console.log('[App.js render()] Called. Current state.settings.apiKey from getState():', state.settings ? state.settings.apiKey : 'state.settings is undefined/null');
   
   root.innerHTML = '';
   
@@ -45,7 +48,17 @@ function render() {
   // Tabs
   const tabs = renderTabs({
     activeTab: state.activeTab,
-    onTabChange: switchTab
+    onTabChange: (tabName) => {
+      switchTab(tabName);
+      // Update placeholder based on tab
+      if (tabName === 'schedule') {
+        setInputPlaceholder('Describe your day or what you want to post about...');
+      } else if (tabName === 'reply') {
+        setInputPlaceholder('Crafting a reply... (or type your reply here)');
+      } else if (tabName === 'compose') {
+        setInputPlaceholder('Composing a new masterpiece... (or type your tweet here)');
+      }
+    }
   });
   root.appendChild(tabs);
   
@@ -56,10 +69,17 @@ function render() {
   // Error message
   if (state.error) {
     content.appendChild(renderErrorMessage(state.error));
+  } else if (state.message) { // Display general messages if no error
+    // We can create a new component for messages or reuse/adapt ErrorMessage
+    // For now, let's quickly adapt ErrorMessage style for general messages
+    const messageElement = renderErrorMessage(state.message); // Reusing for simplicity
+    messageElement.classList.remove('error-message'); // Remove error specific class
+    messageElement.classList.add('info-message'); // Add an info class (needs CSS)
+    content.appendChild(messageElement);
   }
   
   // Loading indicator
-  if (state.loading) {
+  if (state.loading || state.isGeneratingPosts) { // Also show for generating posts
     content.appendChild(renderLoadingIndicator());
   }
   
@@ -71,11 +91,19 @@ function render() {
       onUseReply: useText,
       onRegenerateReply: handleRegenerateReply
     }));
-  } else {
+  } else if (state.activeTab === 'compose') { // Changed from else to else if
     content.appendChild(renderComposeTab({
       ideas: state.tweetIdeas,
       trending: state.trendingTopics,
       onUseTweet: useText
+    }));
+  } else if (state.activeTab === 'schedule') { // Add schedule tab content
+    content.appendChild(renderSchedulePanel({
+      settings: state.settings,
+      onGeneratePosts: handleGeneratePosts,
+      onSchedulePosts: handleSchedulePosts, // Placeholder for now
+      generatedPosts: state.generatedPosts,
+      isGenerating: state.isGeneratingPosts
     }));
   }
   
@@ -85,8 +113,11 @@ function render() {
   const inputArea = renderInputArea({
     currentInput: state.currentInput,
     selectedTone: state.selectedTone,
-    inputPlaceholder: state.inputPlaceholder,
-    onInputChange: (text) => sendMessage(text),
+    inputPlaceholder: state.inputPlaceholder, // This will now be updated by onTabChange
+    onInputChange: (text) => {
+      setCurrentInputText(text); // Ensure state.currentInput is updated
+    },
+    onSendClick: handleInputSend, // New prop
     onToneChange: changeTone,
     onMicClick: handleMicClick,
     isRecording: state.isRecording
@@ -103,6 +134,151 @@ function render() {
       loading: state.settingsLoading
     });
     root.appendChild(settingsPanel);
+  }
+}
+
+// Handler for the main input area's send action
+function handleInputSend(text) {
+  const currentActiveTab = getState().activeTab;
+  // Ensure text is passed to setCurrentInputText one last time before action
+  // This is because onInputChange updates on key press, send is an action
+  setCurrentInputText(text); 
+
+  if (currentActiveTab === 'schedule') {
+    handleGeneratePosts(); // handleGeneratePosts reads from state.currentInput
+  } else if (currentActiveTab === 'reply') {
+    // Logic for sending a reply, e.g., if you have a function like handleSendReply(text)
+    // For now, assuming sendMessage might be part of it or a placeholder
+    prepareForNewAiReply(); // Clears old AI replies, sets loading
+    sendMessage(text); // This will trigger AI response for reply
+    console.log('[App.js] Send action for Reply tab with text:', text);
+  } else if (currentActiveTab === 'compose') {
+    // Logic for composing/sending a tweet, e.g., handleSendTweet(text)
+    // For now, assuming sendMessage might be part of it or a placeholder
+    // Or, if compose is just for ideas, this might trigger idea generation based on input
+    sendMessage(text); // This might trigger AI for tweet ideas based on input
+    console.log('[App.js] Send action for Compose tab with text:', text);
+  }
+}
+
+// Handler for generating scheduled posts
+async function handleGeneratePosts() { 
+  const currentGlobalState = getState(); // Get state once at the beginning
+  console.log('[App.js] handleGeneratePosts called.');
+  console.log('[App.js] currentGlobalState.currentInput:', currentGlobalState.currentInput);
+  console.log('[App.js] Full currentGlobalState.settings from getState():', JSON.stringify(currentGlobalState.settings));
+  console.log('[App.js] Checking API key from currentGlobalState.settings.apiKey:', currentGlobalState.settings ? currentGlobalState.settings.apiKey : 'currentGlobalState.settings is undefined');
+
+  if (!currentGlobalState.settings || !currentGlobalState.settings.apiKey) {
+    alert('API key is not set. Please set it in the extension settings before generating posts.');
+    console.warn('[App.js] handleGeneratePosts: API key check failed. Aborting. currentGlobalState.settings was:', JSON.stringify(currentGlobalState.settings));
+    return;
+  }
+
+  const summary = currentGlobalState.currentInput;
+
+  if (!summary || summary.trim() === '') {
+    alert('Please provide a summary for your day.'); 
+    console.warn('[App.js] handleGeneratePosts: Summary is empty.');
+    return;
+  }
+
+  updateState({ loading: true, error: null }); // Update loading state via central state manager
+
+  setIsGeneratingPosts(true);
+  setError(null); // Clear previous errors
+  setMessage(null); // Clear previous messages
+
+  try {
+    const posts = await generateScheduledPosts(currentGlobalState.settings.apiKey, summary, currentGlobalState.settings);
+    setGeneratedPosts(posts.map(content => ({ content }))); // Wrap in object as Schedule.js expects
+  } catch (err) {
+    console.error('[App.js] Error generating scheduled posts:', err);
+    setError(err.message || 'Failed to generate posts.');
+    setGeneratedPosts([]); // Clear any previous posts on error
+  } finally {
+    setIsGeneratingPosts(false);
+  }
+}
+
+// Handler for scheduling posts
+async function handleSchedulePosts(postsToSchedule, scheduleDetail) { // scheduleDetail can be hours_from_now or a datetime-local string
+  console.log('[App.js] handleSchedulePosts called with:', { postsToSchedule, scheduleDetail });
+  setError(null);
+  setMessage(null);
+
+  if (!postsToSchedule || postsToSchedule.length === 0) {
+    setMessage('No post selected to schedule.');
+    return;
+  }
+
+  const postToSchedule = postsToSchedule[0];
+
+  if (!postToSchedule.content) {
+    setMessage('Post content is empty.');
+    return;
+  }
+
+  let whenToScheduleMs;
+  const nowMs = Date.now();
+
+  if (postToSchedule.scheduledTime === 'custom') {
+    if (scheduleDetail && typeof scheduleDetail === 'string') { // scheduleDetail is the datetime-local string
+        const parsedCustomTime = new Date(scheduleDetail).getTime();
+        if (isNaN(parsedCustomTime) || parsedCustomTime <= nowMs) {
+            setError('Invalid custom time provided or time is not in the future. Please enter a future date/time.');
+            return;
+        }
+        whenToScheduleMs = parsedCustomTime;
+        console.log(`[App.js] Custom schedule time raw string: ${scheduleDetail}, Parsed to ms: ${whenToScheduleMs}, Date: ${new Date(whenToScheduleMs)}`);
+    } else {
+        setError('Custom time was selected, but no time value was provided.');
+        return;
+    }
+  } else if (scheduleDetail && !isNaN(parseFloat(scheduleDetail))) { // scheduleDetail is hours from now ('1' or '2')
+    const hoursFromNow = parseFloat(scheduleDetail);
+    if (hoursFromNow <= 0) {
+      setMessage('Please select a valid future time interval.');
+      return;
+    }
+    whenToScheduleMs = nowMs + (hoursFromNow * 60 * 60 * 1000);
+    console.log(`[App.js] Scheduling ${hoursFromNow} hours from now: ${new Date(whenToScheduleMs)}`);
+  } else {
+    setError('Invalid scheduling option or detail provided.');
+    return;
+  }
+
+  try {
+    const { scheduledPosts = [] } = await chrome.storage.local.get('scheduledPosts');
+    
+    const alarmName = `scheduledPost_${Date.now()}`;
+
+    const scheduledPostEntry = {
+      alarmName,
+      content: postToSchedule.content,
+      scheduledTime: new Date(whenToScheduleMs).toISOString(),
+      status: 'pending'
+    };
+
+    scheduledPosts.push(scheduledPostEntry);
+    chrome.alarms.create(alarmName, { when: whenToScheduleMs });
+    console.log(`[App.js] Alarm created: ${alarmName} for time: ${new Date(whenToScheduleMs)}`);
+
+    await chrome.storage.local.set({ scheduledPosts });
+    
+    // OPTIONAL: Remove only the scheduled post from generatedPosts in UI
+    // This requires posts to have a unique ID or to be identified by content/index
+    // For simplicity now, we might still clear all or handle this in a more advanced way later.
+    // For now, let's assume the user wants to clear the list after scheduling one, or we handle UI update separately.
+    // updateState({ generatedPosts: getState().generatedPosts.filter(p => p.content !== postToSchedule.content) }); // Example
+    setMessage(`Post scheduled successfully for ${new Date(whenToScheduleMs).toLocaleString()}!`);
+    // Consider if we should clear all generatedPosts or just the one scheduled.
+    // If just one, App.js needs to manage generatedPosts state more granularly.
+    // For now, let's leave generatedPosts as is, allowing user to schedule others.
+
+  } catch (err) {
+    console.error('[App.js] Error scheduling post:', err);
+    setError(`Failed to schedule post: ${err.message}`);
   }
 }
 

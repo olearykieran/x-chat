@@ -346,6 +346,18 @@ body {
   color: var(--text-secondary);
 }
 
+.premium-info-container ul {
+  list-style-type: disc;
+  margin-left: 20px;
+  padding-left: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.premium-info-container ul li {
+  margin-bottom: 4px;
+}
+
 .tags-container {
   display: flex;
   flex-wrap: wrap;
@@ -456,16 +468,26 @@ body {
   margin-bottom: 8px;
 }
 
-.premium-info-container ul {
-  list-style-type: disc;
-  margin-left: 20px;
-  padding-left: 0;
-  font-size: 14px;
-  color: var(--text-secondary);
+/* Styles for the Schedule Tab Textarea */
+.schedule-post-textarea {
+  background-color: var(--hover-color); /* Using existing variable for input-like backgrounds */
+  color: var(--text-color);           /* Using existing variable for text */
+  border: 1px solid var(--border-color); /* Using existing variable for borders */
+  border-radius: 8px;        /* Slightly larger radius to match input-box if desired, or keep smaller */
+  padding: 10px 12px;         /* Consistent padding */
+  line-height: 1.5;          /* Adjust for comfortable line spacing */
+  min-height: 80px;          /* Visually corresponds to ~4 rows. Adjust as needed. */
+  /* These are from our JS and are good to reinforce in CSS: */
+  box-sizing: border-box;
+  width: 100%;
+  display: block;
+  resize: none;
+  overflow-y: auto; /* To enable scrolling if content exceeds height */
 }
 
-.premium-info-container ul li {
-  margin-bottom: 4px;
+.schedule-post-textarea:focus {
+  border-color: var(--primary-color); /* Using existing variable for focus highlight */
+  outline: none;
 }
 
 /* Loading states */

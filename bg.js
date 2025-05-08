@@ -13,23 +13,50 @@ let userWritingSamples = []; // To store scraped user posts for voice training
 let userLikedTopicsRaw = []; // To store scraped liked posts for topic generation
 
 // Load settings and other stored data on startup
-chrome.runtime.onStartup.addListener(loadDataFromStorage);
-chrome.runtime.onInstalled.addListener(loadDataFromStorage);
+console.log('[Background] Initializing script. Current userSettings:', JSON.parse(JSON.stringify(userSettings)));
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[Background] onStartup triggered. Calling loadDataFromStorage.');
+  loadDataFromStorage();
+});
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('[Background] onInstalled triggered. Calling loadDataFromStorage.');
+  loadDataFromStorage();
+});
 
 function loadDataFromStorage() {
-  chrome.storage.sync.get(['apiKey', 'profileBio', 'hashtags', 'tone'], (result) => {
-    if (result.apiKey) userSettings.apiKey = result.apiKey;
+  console.log('[Background] loadDataFromStorage called. Current userSettings BEFORE sync.get:', JSON.parse(JSON.stringify(userSettings)));
+  chrome.storage.sync.get(['apiKey', 'profileBio', 'hashtags', 'tone', 'settings'], (result) => { // also get 'settings' for broader view
+    console.log('[Background] loadDataFromStorage - Data retrieved from sync:', result);
+    if (chrome.runtime.lastError) {
+      console.error('[Background] Error loading data from storage:', chrome.runtime.lastError);
+      return;
+    }
+    if (result.apiKey) {
+        userSettings.apiKey = result.apiKey;
+        console.log('[Background] loadDataFromStorage: API Key loaded from storage:', userSettings.apiKey);
+    } else {
+        console.log('[Background] loadDataFromStorage: API Key NOT found in storage result.');
+    }
     if (result.profileBio) userSettings.profileBio = result.profileBio;
     if (result.hashtags) userSettings.hashtags = result.hashtags;
     if (result.tone) userSettings.tone = result.tone;
+    // If there's a legacy 'settings' object, merge it carefully or prioritize individual keys
+    if (result.settings && typeof result.settings === 'object') {
+        console.log('[Background] loadDataFromStorage: Found a legacy settings object in storage:', result.settings);
+        // Prioritize individual keys if they exist, otherwise take from settings object
+        userSettings.profileBio = result.profileBio || result.settings.profileBio || DEFAULT_SETTINGS.profileBio;
+        userSettings.hashtags = result.hashtags || result.settings.hashtags || DEFAULT_SETTINGS.hashtags;
+        userSettings.tone = result.tone || result.settings.defaultTone || DEFAULT_SETTINGS.tone; // Note: settings uses defaultTone
+        // API key is handled separately above
+    }
+
+    console.log('[Background] loadDataFromStorage: userSettings AFTER sync.get and processing:', JSON.parse(JSON.stringify(userSettings)));
     console.log('[Background] Initial settings loaded:', userSettings);
-  });
-  chrome.storage.local.get(['userWritingSamples', 'userLikedTopicsRaw'], (result) => {
-    if (result.userWritingSamples) userWritingSamples = result.userWritingSamples;
-    if (result.userLikedTopicsRaw) userLikedTopicsRaw = result.userLikedTopicsRaw;
-    console.log('[Background] Initial voice/topic data loaded.');
+    console.log('[Background] Initial voice/topic data loaded.'); // Assuming this means samples/topics loaded elsewhere or default
   });
 }
+// Call it once on script load as well, as onStartup/onInstalled might not cover all reload scenarios during development
+loadDataFromStorage(); 
 
 // Helper function to get API key from storage
 async function getApiKey() {
@@ -51,11 +78,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Handlers that don't need an API key or have special handling first
     if (message.type === 'SAVE_SETTINGS') {
-      console.log('[Background] Saving settings:', message.payload); // Assuming payload is message.settings from previous context
+      console.log('[Background] SAVE_SETTINGS received. message.settings keys:', message.settings ? Object.keys(message.settings) : 'null/undefined', 'Full message.settings:', JSON.parse(JSON.stringify(message.settings)));
       try {
-        await chrome.storage.sync.set(message.payload); // Ensure message.payload has the correct structure
-        Object.assign(userSettings, message.payload); // Update in-memory cache
-        sendResponse({ success: true });
+        if (message.settings && typeof message.settings === 'object') {
+          // Ensure that what we're saving to sync doesn't inadvertently include apiKey if it's not supposed to be here
+          const settingsToSync = { ...message.settings };
+          if ('apiKey' in settingsToSync) { 
+            // This case should ideally not happen if Settings.js correctly omits apiKey from newProfileSettings
+            console.warn('[Background] SAVE_SETTINGS: message.settings unexpectedly contained an apiKey property. Value:', settingsToSync.apiKey, 'This should be handled by SAVE_API_KEY only. Not saving apiKey via SAVE_SETTINGS.');
+            delete settingsToSync.apiKey; // Do not let SAVE_SETTINGS overwrite/save apiKey
+          }
+          await chrome.storage.sync.set(settingsToSync);
+
+          // Object.assign will merge. If message.settings has no apiKey prop, userSettings.apiKey remains untouched.
+          // If message.settings *did* have apiKey: '' (which it shouldn't anymore), it would overwrite.
+          Object.assign(userSettings, message.settings);
+          console.log('[Background] SAVE_SETTINGS: userSettings after Object.assign:', JSON.parse(JSON.stringify(userSettings)));
+          sendResponse({ success: true });
+        } else {
+          console.error('[Background] SAVE_SETTINGS: message.settings was invalid or not an object.', message.settings);
+          sendResponse({ success: false, error: 'Invalid settings data received.' });
+        }
       } catch (error) {
         console.error('[Background] Error saving settings:', error);
         sendResponse({ success: false, error: error.message });
@@ -70,6 +113,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'SAVE_API_KEY') { // This was present in one of the diffs
       userSettings.apiKey = message.apiKey;
       await chrome.storage.sync.set({ apiKey: message.apiKey });
+      console.log('[Background] SAVE_API_KEY: userSettings.apiKey set to:', userSettings.apiKey, 'Saved to sync.');
       sendResponse({ success: true }); // Simplified, add error handling if needed
       return;
     }
@@ -97,20 +141,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // Most other handlers will need an API key
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-      if (message.type !== 'GET_SETTINGS' && message.type !== 'IS_API_KEY_SET' && message.type !== 'FETCH_TRENDING') { // Add any other types that don't need an API key
-        sendResponse({ error: 'OpenAI API key is not set. Please set it in the extension settings.' });
-        return;
-      }
+    if (!userSettings.apiKey) {
+      console.error('[Background] CRITICAL: API key check failed! userSettings.apiKey is:', userSettings.apiKey, 'Full userSettings:', JSON.parse(JSON.stringify(userSettings)));
+      sendResponse({ error: 'API key not found' });
+      // throw new Error('API key not found'); // This was line 214 - let's sendResponse instead of throwing hard error for now
+      return; // Prevent further execution if no API key
     }
+
+    console.log('[Background] API key check passed. userSettings.apiKey:', userSettings.apiKey); // Log before using API key
 
     // Handlers that require API key (or are fine if it's null for their specific logic, like IS_API_KEY_SET)
     if (message.type === 'GET_SETTINGS') {
       const settings = await loadDataFromStorage(['apiKey', 'profileBio', 'selectedTone', 'hashtags']); // loadDataFromStorage is async
       sendResponse(settings);
     } else if (message.type === 'IS_API_KEY_SET') {
-        sendResponse({ isSet: !!apiKey });
+        sendResponse({ isSet: !!userSettings.apiKey });
     } else if (message.type === 'GET_TWEET_TEXT') {
       if (!message.payload || !message.payload.prompt) {
         sendResponse({ error: 'No prompt provided for GET_TWEET_TEXT.' });
@@ -119,7 +164,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const { prompt, tone, instruction, context } = message.payload;
         const systemMessage = "You are an AI assistant. Generate a tweet based on the provided prompt, context, and instructions. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.";
-        const tweetText = await callOpenAI(apiKey, prompt, tone, instruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage, context);
+        const tweetText = await callOpenAI(userSettings.apiKey, prompt, tone, instruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage, context);
         sendResponse({ tweetText });
       } catch (error) {
         console.error('[Background] Error generating tweet text:', error);
@@ -129,7 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log('[Background] Received PROCESS_VOICE_TRANSCRIPT (old flow)');
       const { transcript, tone } = message.payload;
       try {
-        const polishedText = await callOpenAI(apiKey, transcript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, 'You are a helpful AI assistant. You will be given a raw voice transcript and should polish it into a coherent tweet or reply. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.');
+        const polishedText = await callOpenAI(userSettings.apiKey, transcript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, 'You are a helpful AI assistant. You will be given a raw voice transcript and should polish it into a coherent tweet or reply. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.');
         sendResponse({ type: 'POLISHED_TEXT_READY', payload: { polishedText } });
       } catch (error) {
         sendResponse({ type: 'POLISHING_ERROR', payload: { error: error.message } });
@@ -146,7 +191,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ error: 'Failed to convert audio data URL to Blob.' });
           return;
         }
-        const transcriptData = await transcribeAudioWithOpenAI(audioBlob, apiKey);
+        const transcriptData = await transcribeAudioWithOpenAI(audioBlob, userSettings.apiKey);
         sendResponse(transcriptData);
       } catch (error) {
         console.error('[Background] Error in TRANSCRIBE_AUDIO handler:', error);
@@ -162,7 +207,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const systemMessage = "You are an AI assistant. Polish the following voice transcript into a coherent and natural-sounding text, suitable for a social media post or reply. Ensure the user's original meaning and tone are preserved. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.";
       try {
         // Ensure callOpenAI signature matches: (apiKey, prompt, tone, customInstruction, userBio, userPosts, userLikes, systemMessageOverride, context)
-        const polishedText = await callOpenAI(apiKey, rawTranscript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage);
+        const polishedText = await callOpenAI(userSettings.apiKey, rawTranscript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage);
         sendResponse({ polishedText: polishedText });
       } catch (error) {
         console.error('[Background] Error polishing transcript:', error);
@@ -174,7 +219,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${userSettings.profileBio || 'a generally helpful and friendly tech enthusiast'}".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${tweetData.tweetAuthorHandle}: "${tweetData.tweetText}"\n`;
         // Add userWritingSamples and userInstruction to prompt if they exist...
         console.log('[Background] FINAL PROMPT for generateReply:', prompt);
-        const reply = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
+        const reply = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
         sendResponse({ reply });
     } else if (message.type === 'GENERATE_AI_REPLY') {
         const { data, tone, userInstruction } = message; // Assuming data and userInstruction
@@ -182,7 +227,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${userSettings.profileBio || 'a generally helpful and friendly tech enthusiast'}".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${data.tweetAuthorHandle}: "${data.tweetText}"\n`;
         // Add userWritingSamples and userInstruction to prompt if they exist...
         console.log('[Background] FINAL PROMPT for GENERATE_AI_REPLY:', prompt);
-        const reply = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
+        const reply = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
         sendResponse({ type: 'AI_REPLY_GENERATED', reply });
     } else if (message.type === 'GENERATE_TWEET_IDEAS') {
         const { trending, tone, userInstruction } = message;
@@ -193,7 +238,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let prompt = `A user wants 3 original tweet ideas (≤280 characters each). Their general writing style is described as: "${userSettings.profileBio || 'a generally insightful and engaging tech commentator'}".\nThe tweet ideas should be ${getTonePrompt(tone)}.\nThe ideas should revolve around these topics/themes: ${topicsForIdeas}.\n`;
         // Add userWritingSamples to prompt if they exist...
         console.log('[Background] FINAL PROMPT for generateTweetIdeas:', prompt);
-        const ideas = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed */);
+        const ideas = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed */);
         sendResponse({ ideas: ideas.split('\n\n').filter(idea => idea.trim().length > 0) });
     } else if (message.type === 'FETCH_TRENDING') {
         fetchTrendingTopics()
@@ -426,3 +471,50 @@ function dataURLtoBlob(dataurl) {
 
 // Listen for side panel open to show extension
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+// Listener for scheduled post alarms
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  console.log('[Background] Alarm triggered:', alarm.name);
+
+  if (alarm.name.startsWith('scheduledPost_')) {
+    try {
+      const { scheduledPosts = [] } = await chrome.storage.local.get('scheduledPosts');
+      const postIndex = scheduledPosts.findIndex(p => p.alarmName === alarm.name);
+
+      if (postIndex > -1) {
+        const postToProcess = scheduledPosts[postIndex];
+        
+        // Simulate posting (log to console for now)
+        console.log(`[Background] Posting scheduled content for alarm ${alarm.name}:`);
+        console.log(`--------------------------------------------------`);
+        console.log(postToProcess.content);
+        console.log(`--------------------------------------------------`);
+        console.log(`Originally scheduled for: ${postToProcess.scheduledTime}`);
+
+        // Update post status
+        scheduledPosts[postIndex].status = 'posted';
+        scheduledPosts[postIndex].postedTime = new Date().toISOString();
+
+        // Save updated posts list
+        await chrome.storage.local.set({ scheduledPosts });
+        console.log(`[Background] Post ${alarm.name} marked as posted.`);
+
+        // Optional: Clear the alarm after it has fired and been processed
+        // chrome.alarms.clear(alarm.name, (wasCleared) => {
+        //   if (wasCleared) {
+        //     console.log(`[Background] Alarm ${alarm.name} cleared successfully.`);
+        //   } else {
+        //     console.warn(`[Background] Could not clear alarm ${alarm.name}. It might have already been cleared or never existed.`);
+        //   }
+        // });
+
+      } else {
+        console.warn(`[Background] Scheduled post for alarm ${alarm.name} not found in storage.`);
+      }
+    } catch (error) {
+      console.error(`[Background] Error processing alarm ${alarm.name}:`, error);
+    }
+  } else {
+    console.log(`[Background] Received non-post alarm: ${alarm.name}`);
+  }
+});

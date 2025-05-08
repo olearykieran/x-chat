@@ -36,16 +36,20 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
     e.preventDefault();
 
     const formData = new FormData(form);
-    const newSettings = { ...settings };
+    const newProfileSettings = {};
 
-    // API Key
-    const apiKey = formData.get("apiKey");
-    if (apiKey !== settings.apiKey) {
-      saveApiKey(apiKey);
+    // API Key - Handled by saveApiKey, not included in newProfileSettings for saveSettings
+    const apiKeyFromForm = formData.get("apiKey");
+    if (apiKeyFromForm !== settings.apiKey) {
+      saveApiKey(apiKeyFromForm);
     }
 
+    // Determine useOwnKey status from radio buttons
+    const useOwnKey = formData.get("keyMode") === "useOwnKey";
+    newProfileSettings.useOwnKey = useOwnKey;
+
     // Profile Bio
-    newSettings.profileBio = formData.get("profileBio");
+    newProfileSettings.profileBio = formData.get("profileBio");
 
     // Hashtags
     const hashtags = formData
@@ -54,13 +58,13 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
       .map((tag) => tag.trim())
       .filter((tag) => tag)
       .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
-    newSettings.hashtags = hashtags;
+    newProfileSettings.hashtags = hashtags;
 
     // Default tone
-    newSettings.defaultTone = formData.get("defaultTone");
+    newProfileSettings.defaultTone = formData.get("defaultTone");
 
-    // Save settings
-    saveSettings(newSettings);
+    // Save other settings (excluding apiKey)
+    saveSettings(newProfileSettings);
   });
 
   // API Key

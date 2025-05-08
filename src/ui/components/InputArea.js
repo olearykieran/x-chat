@@ -5,7 +5,7 @@ import { TONE_OPTIONS } from '../../../lib/constants.js';
  * @param {Object} props - Component props
  * @returns {HTMLElement} - Input area element
  */
-export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, onInputChange, onToneChange, onMicClick, isRecording }) {
+export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, onInputChange, onSendClick, onToneChange, onMicClick, isRecording }) {
   const container = document.createElement('div');
   container.className = 'input-area';
   
@@ -38,6 +38,10 @@ export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, 
   textarea.addEventListener('input', function() {
     this.style.height = 'auto';
     this.style.height = (this.scrollHeight) + 'px';
+    // Call onInputChange for live updates of state.currentInput
+    if (onInputChange) {
+      onInputChange(this.value);
+    }
   });
   
   inputContainer.appendChild(textarea);
@@ -84,7 +88,10 @@ export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, 
   
   sendButton.addEventListener('click', () => {
     if (textarea.value.trim()) {
-      onInputChange(textarea.value);
+      if (onSendClick) {
+        onSendClick(textarea.value);
+      }
+      // Optionally clear textarea here or let the calling component manage it
       textarea.value = '';
       textarea.style.height = 'auto';
     }
@@ -95,7 +102,9 @@ export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (textarea.value.trim()) {
-        onInputChange(textarea.value);
+        if (onSendClick) {
+          onSendClick(textarea.value);
+        }
         textarea.value = '';
         textarea.style.height = 'auto';
       }
