@@ -21,7 +21,9 @@ let state = {
   
   // Current input
   currentInput: '',
-  selectedTone: 'neutral'
+  selectedTone: 'neutral',
+  inputPlaceholder: 'Type your instructions, or click the tweet button to generate a reply...', // New placeholder state
+  
 };
 
 // Listeners for state changes
@@ -423,6 +425,22 @@ export function setCurrentInputText(text) {
  */
 export function setRecordingState(isRecording) {
   updateState({ isRecording });
+}
+
+/**
+ * Sets the loading state for the UI.
+ * @param {boolean} isLoading - True if loading, false otherwise.
+ */
+export function setLoadingState(isLoading) {
+  updateState({ loading: isLoading });
+}
+
+/**
+ * Sets the input area's placeholder text.
+ * @param {string} text - The placeholder text.
+ */
+export function setInputPlaceholder(text) {
+  updateState({ inputPlaceholder: text });
 }
 
 /**

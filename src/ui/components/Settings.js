@@ -373,6 +373,35 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   toneSection.appendChild(toneSelect);
   form.appendChild(toneSection);
 
+  // Permissions Settings Section
+  const permissionsSection = document.createElement("div");
+  permissionsSection.className = "settings-section";
+
+  const permissionsLabel = document.createElement("h3"); // Using h3 for section title
+  permissionsLabel.textContent = "Permission Settings";
+  permissionsLabel.style.marginBottom = "10px";
+
+  const managePermissionsButton = document.createElement("button");
+  managePermissionsButton.type = "button"; // Important: type="button" to prevent form submission
+  managePermissionsButton.textContent = "Manage Extension Site Permissions (e.g., Microphone)";
+  managePermissionsButton.className = "xco-btn xco-btn-outline"; // Using existing button styles
+  managePermissionsButton.style.width = "100%";
+  managePermissionsButton.addEventListener("click", () => {
+    const extensionId = chrome.runtime.id;
+    const settingsUrl = `chrome://settings/content/siteDetails?site=chrome-extension://${extensionId}`;
+    chrome.tabs.create({ url: settingsUrl });
+  });
+
+  const permissionsDescription = document.createElement("p");
+  permissionsDescription.className = "form-description";
+  permissionsDescription.innerHTML = 
+    'If you encounter issues with microphone access, ensure it is set to <strong>Allow</strong> for this extension. <br/>Chrome may not prompt for permission if set to "Ask".';
+
+  permissionsSection.appendChild(permissionsLabel);
+  permissionsSection.appendChild(managePermissionsButton);
+  permissionsSection.appendChild(permissionsDescription);
+  form.appendChild(permissionsSection);
+
   // Save Settings Button
   const saveButton = document.createElement("button");
   saveButton.type = "submit";

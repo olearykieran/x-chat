@@ -21,28 +21,84 @@ function init() {
   }
 
   // Listen for messages from sidepanel
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === "USE_REPLY" && message.text) {
-      insertReplyText(message.text);
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === "USE_REPLY" && request.text) {
+      insertReplyText(request.text);
       sendResponse({ success: true });
       return true;
     }
 
-    if (message.type === "USE_TWEET" && message.text) {
-      insertTweetText(message.text);
+    if (request.type === "USE_TWEET" && request.text) {
+      insertTweetText(request.text);
       sendResponse({ success: true });
       return true;
     }
 
-    if (message.type === "GET_CURRENT_TWEET") {
+    if (request.type === "GET_CURRENT_TWEET") {
       sendResponse({ tweetData: currentTweet });
       return true;
     }
 
-    if (message.type === "CHECK_COMPOSER_EMPTY") {
+    if (request.type === "CHECK_COMPOSER_EMPTY") {
       const isEmpty = isComposerEmpty();
       sendResponse({ isEmpty });
       return true;
+    }
+
+    if (request.action === 'collectVoiceTrainingData') {
+      console.log('[XCO-Poster] Received request to collect voice training data from side panel.');
+      const activeUrl = request.activeTabUrl ? request.activeTabUrl : window.location.href;
+      const username = getProfileUsernameFromUrl(activeUrl);
+      const currentPath = request.activeTabUrl ? new URL(activeUrl).pathname : window.location.pathname;
+      const currentTab = getCurrentProfileTab(username, currentPath);
+      const nonUserProfilePaths = ['home', 'explore', 'notifications', 'messages', 'settings', 'i', 'search', 'compose', 'logout', 'login', 'signup', 'tos', 'privacy', 'connect_people', 'verified_followers', 'followers_you_know', 'following', 'followers', 'lists', 'communities', 'premium_support', 'topics', 'moments', 'bookmarks', 'analytics'];
+
+      if (username && nonUserProfilePaths.includes(username.toLowerCase())) {
+        console.log(`[XCO-Poster] Attempt to collect voice training data from non-user profile page: /${username}`);
+        sendResponse({ error: `This page ('/${username}') is not a user profile page suitable for voice training.` });
+        return true;
+      }
+
+      if (isOwnProfilePage(username, currentPath)) {
+        if (currentTab === 'posts' || currentTab === 'replies') {
+          console.log(`[XCO-Poster] Initiating voice training data collection from ${currentTab} tab (URL: ${request.activeTabUrl}).`);
+          // ... rest of the code
+          return true; 
+        } else {
+          sendResponse({ error: `Voice training data can only be collected from Posts or Replies tabs. You are on '${currentTab || 'unknown'}' tab.` });
+        }
+      } else {
+        sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
+      }
+      return true; // Indicates async response
+    }
+
+    if (request.action === 'collectInterestData') {
+      console.log('[XCO-Poster] Received request to collect interest data from side panel.');
+      const activeUrl = request.activeTabUrl ? request.activeTabUrl : window.location.href;
+      const username = getProfileUsernameFromUrl(activeUrl);
+      const currentPath = request.activeTabUrl ? new URL(activeUrl).pathname : window.location.pathname;
+      const currentTab = getCurrentProfileTab(username, currentPath);
+      const nonUserProfilePaths = ['home', 'explore', 'notifications', 'messages', 'settings', 'i', 'search', 'compose', 'logout', 'login', 'signup', 'tos', 'privacy', 'connect_people', 'verified_followers', 'followers_you_know', 'following', 'followers', 'lists', 'communities', 'premium_support', 'topics', 'moments', 'bookmarks', 'analytics'];
+
+      if (username && nonUserProfilePaths.includes(username.toLowerCase())) {
+        console.log(`[XCO-Poster] Attempt to collect interest data from non-user profile page: /${username}`);
+        sendResponse({ error: `This page ('/${username}') is not a user profile page suitable for interest data collection.` });
+        return true;
+      }
+
+      if (isOwnProfilePage(username, currentPath)) {
+        if (currentTab === 'likes') {
+          console.log(`[XCO-Poster] Initiating interest data collection from Likes tab (URL: ${request.activeTabUrl}).`);
+          // ... rest of the code
+          return true; 
+        } else {
+          sendResponse({ error: `Interest data can only be collected from the Likes tab. You are on '${currentTab || 'unknown'}' tab.` });
+        }
+      } else {
+        sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
+      }
+      return true; // Indicates async response
     }
   });
 }
@@ -248,4 +304,22 @@ function insertTextIntoComposer(text) {
   } else {
     console.error('[ContentScript] Composer element [data-testid="tweetTextarea_0"] not found.');
   }
+}
+
+// Helper functions
+function getProfileUsernameFromUrl(url) {
+  const urlParts = url.split('/');
+  return urlParts[urlParts.length - 1];
+}
+
+function getCurrentProfileTab(username, currentPath) {
+  const pathParts = currentPath.split('/');
+  if (pathParts.includes(username)) {
+    return pathParts[pathParts.length - 1];
+  }
+  return null;
+}
+
+function isOwnProfilePage(username, currentPath) {
+  return username === getProfileUsernameFromUrl(currentPath);
 }

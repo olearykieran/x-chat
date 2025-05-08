@@ -5,7 +5,7 @@ import { TONE_OPTIONS } from '../../../lib/constants.js';
  * @param {Object} props - Component props
  * @returns {HTMLElement} - Input area element
  */
-export function renderInputArea({ currentInput, selectedTone, onInputChange, onToneChange, onMicClick, isRecording }) {
+export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, onInputChange, onToneChange, onMicClick, isRecording }) {
   const container = document.createElement('div');
   container.className = 'input-area';
   
@@ -31,8 +31,8 @@ export function renderInputArea({ currentInput, selectedTone, onInputChange, onT
   
   const textarea = document.createElement('textarea');
   textarea.className = 'input-box';
-  textarea.placeholder = 'Type your instructions...';
   textarea.value = currentInput || '';
+  textarea.placeholder = inputPlaceholder || 'Type your instructions...';
   
   // Auto-resize textarea
   textarea.addEventListener('input', function() {
@@ -40,6 +40,39 @@ export function renderInputArea({ currentInput, selectedTone, onInputChange, onT
     this.style.height = (this.scrollHeight) + 'px';
   });
   
+  inputContainer.appendChild(textarea);
+
+  const micButton = document.createElement('button');
+  micButton.className = 'mic-button';
+  // SVG for microphone icon - explicitly set fill to white
+  micButton.innerHTML = '<svg fill="white" viewBox="0 0 24 24" width="24" height="24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"></path></svg>';
+  
+  // Styling for the mic button to match a typical circular icon button
+  micButton.style.width = '40px'; 
+  micButton.style.height = '40px'; 
+  micButton.style.borderRadius = '50%'; // Circular
+  micButton.style.padding = '8px';      // To center the 24x24 SVG in a 40x40 button
+  micButton.style.display = 'flex';
+  micButton.style.alignItems = 'center';
+  micButton.style.justifyContent = 'center';
+  micButton.style.border = '1px solid #4A4A4A'; // Default border, similar to tone buttons
+  micButton.style.backgroundColor = '#2C2C2C'; // Default background, similar to tone buttons
+  micButton.style.marginLeft = '8px'; 
+  micButton.style.cursor = 'pointer';
+  micButton.style.flexShrink = '0'; // Prevent shrinking
+
+  if (isRecording) {
+    micButton.style.backgroundColor = 'rgba(255, 82, 82, 0.3)'; // Light red background
+    micButton.style.borderColor = '#FF5252'; // Red border
+  } else {
+    // Ensure default styles are reapplied if not recording
+    micButton.style.backgroundColor = '#2C2C2C';
+    micButton.style.borderColor = '#4A4A4A';
+  }
+  
+  micButton.addEventListener('click', onMicClick);
+  inputContainer.appendChild(micButton);
+
   const sendButton = document.createElement('button');
   sendButton.className = 'send-button';
   sendButton.innerHTML = `
@@ -69,36 +102,6 @@ export function renderInputArea({ currentInput, selectedTone, onInputChange, onT
     }
   });
   
-  inputContainer.appendChild(textarea);
-
-  // Microphone button
-  const micButton = document.createElement('button');
-  micButton.className = 'mic-button xco-btn';
-  micButton.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-      <line x1="12" y1="19" x2="12" y2="22"></line>
-    </svg>
-  `;
-  micButton.title = 'Record voice input';
-  micButton.style.padding = '8px';
-  micButton.style.marginLeft = '4px'; 
-  micButton.style.backgroundColor = isRecording ? '#ffdddd' : 'transparent'; 
-  micButton.style.border = `1px solid ${isRecording ? 'red' : '#ccc'}`;
-  micButton.style.borderRadius = '50%'; 
-  micButton.style.cursor = 'pointer';
-  micButton.style.transition = 'background-color 0.3s, border-color 0.3s'; 
-
-  micButton.addEventListener('click', () => {
-    if (typeof onMicClick === 'function') {
-      onMicClick();
-    } else {
-      console.warn('[InputArea] onMicClick handler not provided.');
-    }
-  });
-  inputContainer.appendChild(micButton);
-
   inputContainer.appendChild(sendButton);
   container.appendChild(inputContainer);
   

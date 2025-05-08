@@ -1,4 +1,4 @@
-import { subscribe, getState, sendMessage, changeTone, toggleSettings, useText, switchTab, prepareForNewAiReply, setCurrentInputText, setRecordingState } from '../state.js';
+import { subscribe, getState, sendMessage, changeTone, toggleSettings, useText, switchTab, prepareForNewAiReply, setCurrentInputText, setRecordingState, setLoadingState, setInputPlaceholder } from '../state.js';
 import { renderHeader } from './Header.js';
 import { renderTabs } from './Tabs.js';
 import { renderReplyTab } from './ReplyTab.js';
@@ -9,7 +9,8 @@ import { renderLoadingIndicator } from './LoadingIndicator.js';
 import { renderErrorMessage } from './ErrorMessage.js';
 
 let root = null;
-let recognition = null; // To hold the SpeechRecognition instance
+let mediaRecorder = null;
+let audioChunks = [];
 
 /**
  * Render the main application
@@ -84,6 +85,7 @@ function render() {
   const inputArea = renderInputArea({
     currentInput: state.currentInput,
     selectedTone: state.selectedTone,
+    inputPlaceholder: state.inputPlaceholder,
     onInputChange: (text) => sendMessage(text),
     onToneChange: changeTone,
     onMicClick: handleMicClick,
@@ -149,85 +151,150 @@ function handleRegenerateReply(tweet) {
 }
 
 // Handler for microphone click
-function handleMicClick() {
-  console.log('[App.js] Microphone button clicked.');
-  const currentRecordingState = getState().isRecording;
-
-  if (currentRecordingState) {
-    if (recognition) {
-      console.log('[App.js] Stopping speech recognition.');
-      recognition.stop();
-      // setRecordingState(false) will be called by onend or onerror
-    } else {
-      // Should not happen if state is managed correctly
-      console.warn('[App.js] isRecording is true, but recognition object is null. Resetting state.');
+async function handleMicClick() {
+  const state = getState();
+  if (state.isRecording) {
+    // Stop recording
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop(); // This will trigger the onstop event
       setRecordingState(false);
+      // UI updates like placeholder and loading are handled in onstop or after it
     }
-    return;
-  }
+  } else {
+    // Start recording
+    let stream; // Declare here for broader scope if needed by onchange or onstop
 
-  // If not recording, start recognition
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.error('[App.js] Speech Recognition API not supported in this browser.');
-    // Optionally, update UI to inform user: alert('Speech Recognition API not supported.');
-    setCurrentInputText('Error: Speech recognition not supported.'); // Inform user via input area
-    return;
-  }
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
+      console.log('[App.js] Microphone permission status:', permissionStatus.state);
 
-  recognition = new SpeechRecognition();
-  recognition.lang = 'en-US';
-  recognition.continuous = false; // False: stop after first pause in speech
-  recognition.interimResults = false; // False: only get final results
+      // Handle permission changes
+      permissionStatus.onchange = () => {
+        console.log('[App.js] Microphone permission status changed to:', permissionStatus.state);
+        if (permissionStatus.state !== 'granted' && mediaRecorder && mediaRecorder.state === 'recording') {
+          mediaRecorder.stop(); // Triggers onstop
+          setRecordingState(false);
+          setInputPlaceholder('Microphone permission revoked.');
+          setCurrentInputText('');
+          // The onstop handler will also attempt to stop stream tracks
+          // alert('Microphone permission was revoked during recording.');
+        }
+      };
 
-  recognition.onstart = () => {
-    console.log('[App.js] Speech recognition started.');
-    setRecordingState(true);
-    // TODO: Update UI to indicate recording (e.g., change mic button icon/color)
-    // For now, we can update the placeholder text
-    const textarea = document.querySelector('.input-box');
-    if (textarea) textarea.placeholder = 'Listening...'; 
-  };
+      if (permissionStatus.state === 'denied') {
+        alert('Microphone access is permanently denied. Please go to your browser\'s site settings for this extension, change the microphone permission to "Allow" or "Ask", and then reload the extension.');
+        setInputPlaceholder('Microphone access denied.');
+        setRecordingState(false);
+        setCurrentInputText('');
+        return;
+      }
 
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    console.log('[App.js] Speech recognition result:', transcript);
-    setCurrentInputText(transcript); // Update the input area with the transcript
+      // If 'granted' or 'prompt', attempt to get the stream
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = []; // Clear previous chunks
 
-    // Automatically attempt to send if the user stops talking?
-    // For now, user has to press send. If we want auto-send:
-    // sendMessage(transcript); // This would also clear the input via its own logic
-  };
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
 
-  recognition.onerror = (event) => {
-    console.error('[App.js] Speech recognition error:', event.error);
-    let errorMessage = 'Speech recognition error: ' + event.error;
-    if (event.error === 'no-speech') {
-        errorMessage = 'No speech detected. Please try again.';
+      mediaRecorder.onstop = () => {
+        setLoadingState(true); // Indicate processing starts as soon as recording stops
+        setInputPlaceholder('Processing audio...');
+        setCurrentInputText(''); // Clear input while processing
+
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        console.log('[App.js] Audio blob created:', audioBlob);
+
+        // Convert Blob to Data URL
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const audioDataUrl = reader.result;
+          console.log('[App.js] Audio Data URL created, sending to background.');
+          chrome.runtime.sendMessage(
+            { type: 'TRANSCRIBE_AUDIO', audioDataUrl: audioDataUrl }, // Send Data URL
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('[App.js] Error sending audio to background:', chrome.runtime.lastError.message);
+                setCurrentInputText('');
+                setInputPlaceholder(`Error: ${chrome.runtime.lastError.message.substring(0, 100)}`);
+                setLoadingState(false);
+              } else if (response && response.transcript) {
+                console.log('[App.js] Raw transcript received:', response.transcript);
+                setCurrentInputText(response.transcript); // Show raw transcript temporarily
+                setInputPlaceholder('Polishing transcript...');
+                // Send for polishing
+                chrome.runtime.sendMessage(
+                  { type: 'POLISH_RAW_TRANSCRIPT', rawTranscript: response.transcript },
+                  (polishResponse) => {
+                    setLoadingState(false);
+                    if (chrome.runtime.lastError) {
+                      console.error('[App.js] Error sending transcript for polishing:', chrome.runtime.lastError.message);
+                      setInputPlaceholder(`Polish error: ${chrome.runtime.lastError.message.substring(0, 100)}`);
+                    } else if (polishResponse && polishResponse.polishedTranscript) {
+                      console.log('[App.js] Polished transcript received:', polishResponse.polishedTranscript);
+                      setCurrentInputText(polishResponse.polishedTranscript);
+                      setInputPlaceholder('Polished transcript ready.');
+                    } else if (polishResponse && polishResponse.error) {
+                      console.error('[App.js] Polishing error from background:', polishResponse.error);
+                      setInputPlaceholder(`Polish failed: ${polishResponse.error.substring(0, 100)}`);
+                    } else {
+                      console.warn('[App.js] No polished transcript or error in response from background during polishing.');
+                      setInputPlaceholder('Polishing failed. Raw transcript shown.');
+                    }
+                  }
+                );
+              } else if (response && response.error) {
+                console.error('[App.js] Transcription error from background:', response.error);
+                setCurrentInputText('');
+                setInputPlaceholder(`Transcription failed: ${response.error.substring(0, 100)}`);
+                setLoadingState(false);
+              } else {
+                console.warn('[App.js] No transcript or error in response from background during transcription.');
+                setCurrentInputText('');
+                setInputPlaceholder('Transcription failed. Try again.');
+                setLoadingState(false);
+              }
+            }
+          );
+        };
+        reader.readAsDataURL(audioBlob);
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+      };
+
+      mediaRecorder.start();
+      setRecordingState(true);
+      setInputPlaceholder('Recording... Click mic to stop.');
+      setCurrentInputText('');
+
+    } catch (err) {
+      console.error('[App.js] Error accessing microphone:', err);
+      setRecordingState(false);
+      setCurrentInputText('');
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        alert(
+          'Microphone access was denied.\n\nIf you are using a Chrome extension, Chrome may not show a microphone prompt if the permission is set to "Ask".\n\nTo use the microphone, go to Chrome settings for this extension and set Microphone to "Allow". (chrome://settings/content/microphone)\n\nReload the extension after changing this setting.'
+        );
+        setInputPlaceholder('Microphone access denied. Set to Allow in Chrome settings for this extension.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        alert('No microphone found. Please ensure a microphone is connected, enabled in your OS, and not in use by another application.');
+        setInputPlaceholder('No microphone found.');
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        alert('Microphone is already in use or cannot be accessed. Please ensure it\'s not being used by another application or browser tab, and try again.');
+        setInputPlaceholder('Microphone in use or error.');
+      } else {
+        alert(`An unexpected error occurred while accessing the microphone: ${err.name}. Check the console for more details.`);
+        setInputPlaceholder('Microphone error.');
+      }
+      // Ensure stream tracks are stopped if an error occurs after stream was obtained but before recording started/completed
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
     }
-    setCurrentInputText(errorMessage); // Show error in input area
-    const textarea = document.querySelector('.input-box');
-    if (textarea) textarea.placeholder = 'Type your instructions...';
-    setRecordingState(false);
-  };
-
-  recognition.onend = () => {
-    console.log('[App.js] Speech recognition ended.');
-    setRecordingState(false);
-    // TODO: Reset mic button UI
-    const textarea = document.querySelector('.input-box');
-    if (textarea && textarea.placeholder === 'Listening...') {
-        textarea.placeholder = 'Type your instructions...';
-    }
-    recognition = null; // Allow starting a new recognition session
-  };
-
-  try {
-    recognition.start();
-  } catch (e) {
-    console.error("[App.js] Error starting speech recognition: ", e);
-    setCurrentInputText('Error: Could not start speech recognition.');
-    setRecordingState(false);
-    recognition = null; // Reset recognition object
   }
 }

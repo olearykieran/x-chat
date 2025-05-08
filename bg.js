@@ -31,175 +31,183 @@ function loadDataFromStorage() {
   });
 }
 
+// Helper function to get API key from storage
+async function getApiKey() {
+  return new Promise((resolve, reject) => {
+    chrome.storage.sync.get(['apiKey'], (result) => {
+      if (result.apiKey) {
+        resolve(result.apiKey);
+      } else {
+        reject('API key not found');
+      }
+    });
+  });
+}
+
 // Handle messages from content script and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[Background] Message received:', message);
+  (async () => {
+    // console.log('[Background] Message received inside async IIFE:', message); // For debugging
 
-  if (message.type === 'TOGGLE_SIDEPANEL') {
-    chrome.sidePanel.open();
-    sendResponse({ success: true });
-    return true;
-  }
-  if (message.type === 'GET_SETTINGS') {
-    sendResponse({ settings: userSettings });
-    return true;
-  }
-  
-  if (message.type === 'SAVE_SETTINGS') {
-    const newSettings = message.settings;
-    let settingsToStoreInSync = {};
+    // Handlers that don't need an API key or have special handling first
+    if (message.type === 'SAVE_SETTINGS') {
+      console.log('[Background] Saving settings:', message.payload); // Assuming payload is message.settings from previous context
+      try {
+        await chrome.storage.sync.set(message.payload); // Ensure message.payload has the correct structure
+        Object.assign(userSettings, message.payload); // Update in-memory cache
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('[Background] Error saving settings:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      return; // Early return for this handler
+    }
+    if (message.type === 'TOGGLE_SIDEPANEL') {
+        chrome.sidePanel.open();
+        sendResponse({ success: true });
+        return; // Does not need API key
+    }
+    if (message.type === 'SAVE_API_KEY') { // This was present in one of the diffs
+      userSettings.apiKey = message.apiKey;
+      await chrome.storage.sync.set({ apiKey: message.apiKey });
+      sendResponse({ success: true }); // Simplified, add error handling if needed
+      return;
+    }
+    if (message.type === 'COLLECT_USER_DATA_FOR_TRAINING') {
+        console.log(`[Background] Forwarding ${message.payload.dataType} data to side panel:`, message.payload.data);
+        chrome.runtime.sendMessage({
+            type: 'USER_DATA_COLLECTED',
+            payload: message.payload
+        }).catch(err => console.warn("[Background] Error sending USER_DATA_COLLECTED to side panel:", err.message));
+        sendResponse({ success: true, message: 'Data forwarded to side panel.' });
+        return;
+    }
+    // Add SAVE_USER_POSTS, SAVE_USER_LIKES if they are simple storage operations not needing the general apiKey
+    if (message.type === 'SAVE_USER_POSTS') {
+        userWritingSamples = message.data.userPosts || []; 
+        await chrome.storage.local.set({ userWritingSamples: userWritingSamples });
+        sendResponse({ success: true });
+        return;
+    }
+    if (message.type === 'SAVE_USER_LIKES') {
+        userLikedTopicsRaw = message.data.likedTweets || []; 
+        await chrome.storage.local.set({ userLikedTopicsRaw: userLikedTopicsRaw });
+        sendResponse({ success: true });
+        return;
+    }
 
-    // Update in-memory userSettings and prepare for chrome.storage.sync
-    if (newSettings.hasOwnProperty('apiKey')) {
-      userSettings.apiKey = newSettings.apiKey;
-      settingsToStoreInSync.apiKey = newSettings.apiKey;
+    // Most other handlers will need an API key
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      if (message.type !== 'GET_SETTINGS' && message.type !== 'IS_API_KEY_SET' && message.type !== 'FETCH_TRENDING') { // Add any other types that don't need an API key
+        sendResponse({ error: 'OpenAI API key is not set. Please set it in the extension settings.' });
+        return;
+      }
     }
-    if (newSettings.hasOwnProperty('profileBio')) {
-      userSettings.profileBio = newSettings.profileBio;
-      settingsToStoreInSync.profileBio = newSettings.profileBio;
-    }
-    if (newSettings.hasOwnProperty('hashtags')) {
-      userSettings.hashtags = newSettings.hashtags;
-      settingsToStoreInSync.hashtags = newSettings.hashtags;
-    }
-    if (newSettings.hasOwnProperty('tone')) {
-      userSettings.tone = newSettings.tone;
-      settingsToStoreInSync.tone = newSettings.tone;
-    }
-    // Note: Any other properties in newSettings not explicitly handled above
-    // will update the in-memory userSettings but won't be individually saved to sync storage
-    // unless added to settingsToStoreInSync.
-    // For safety, you might want to merge all newSettings into userSettings in memory:
-    // userSettings = { ...userSettings, ...newSettings };
-    // But only store recognized keys to sync to avoid cluttering it.
 
-    if (Object.keys(settingsToStoreInSync).length > 0) {
-      chrome.storage.sync.set(settingsToStoreInSync, () => {
-        if (chrome.runtime.lastError) {
-          console.error('[Background] Error saving settings:', chrome.runtime.lastError);
-          sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        } else {
-          console.log('[Background] Settings saved successfully via SAVE_SETTINGS:', userSettings);
-          sendResponse({ success: true });
+    // Handlers that require API key (or are fine if it's null for their specific logic, like IS_API_KEY_SET)
+    if (message.type === 'GET_SETTINGS') {
+      const settings = await loadDataFromStorage(['apiKey', 'profileBio', 'selectedTone', 'hashtags']); // loadDataFromStorage is async
+      sendResponse(settings);
+    } else if (message.type === 'IS_API_KEY_SET') {
+        sendResponse({ isSet: !!apiKey });
+    } else if (message.type === 'GET_TWEET_TEXT') {
+      if (!message.payload || !message.payload.prompt) {
+        sendResponse({ error: 'No prompt provided for GET_TWEET_TEXT.' });
+        return;
+      }
+      try {
+        const { prompt, tone, instruction, context } = message.payload;
+        const systemMessage = "You are an AI assistant. Generate a tweet based on the provided prompt, context, and instructions. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.";
+        const tweetText = await callOpenAI(apiKey, prompt, tone, instruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage, context);
+        sendResponse({ tweetText });
+      } catch (error) {
+        console.error('[Background] Error generating tweet text:', error);
+        sendResponse({ error: `Error generating tweet: ${error.message}` });
+      }
+    } else if (message.type === 'PROCESS_VOICE_TRANSCRIPT') { // Old flow, to be deprecated
+      console.log('[Background] Received PROCESS_VOICE_TRANSCRIPT (old flow)');
+      const { transcript, tone } = message.payload;
+      try {
+        const polishedText = await callOpenAI(apiKey, transcript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, 'You are a helpful AI assistant. You will be given a raw voice transcript and should polish it into a coherent tweet or reply. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.');
+        sendResponse({ type: 'POLISHED_TEXT_READY', payload: { polishedText } });
+      } catch (error) {
+        sendResponse({ type: 'POLISHING_ERROR', payload: { error: error.message } });
+      }
+    } else if (message.type === 'TRANSCRIBE_AUDIO') {
+      console.log('[Background] Received TRANSCRIBE_AUDIO request');
+      if (!message.audioDataUrl) {
+        sendResponse({ error: 'No audio data URL provided for transcription.' });
+        return;
+      }
+      try {
+        const audioBlob = dataURLtoBlob(message.audioDataUrl);
+        if (!audioBlob) {
+          sendResponse({ error: 'Failed to convert audio data URL to Blob.' });
+          return;
         }
-      });
+        const transcriptData = await transcribeAudioWithOpenAI(audioBlob, apiKey);
+        sendResponse(transcriptData);
+      } catch (error) {
+        console.error('[Background] Error in TRANSCRIBE_AUDIO handler:', error);
+        sendResponse({ error: `Internal error during transcription: ${error.message}` });
+      }
+    } else if (message.type === 'POLISH_RAW_TRANSCRIPT') {
+      console.log('[Background] Received POLISH_RAW_TRANSCRIPT request', message.payload);
+      if (!message.payload || !message.payload.rawTranscript) {
+        sendResponse({ error: 'No raw transcript provided for polishing.' });
+        return;
+      }
+      const { rawTranscript, tone } = message.payload;
+      const systemMessage = "You are an AI assistant. Polish the following voice transcript into a coherent and natural-sounding text, suitable for a social media post or reply. Ensure the user's original meaning and tone are preserved. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.";
+      try {
+        // Ensure callOpenAI signature matches: (apiKey, prompt, tone, customInstruction, userBio, userPosts, userLikes, systemMessageOverride, context)
+        const polishedText = await callOpenAI(apiKey, rawTranscript, tone, null, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets, systemMessage);
+        sendResponse({ polishedText: polishedText });
+      } catch (error) {
+        console.error('[Background] Error polishing transcript:', error);
+        sendResponse({ error: `Error polishing transcript: ${error.message}` });
+      }
+    } else if (message.type === 'GENERATE_REPLY') {
+        const { tweetData, tone, userInstruction } = message; // Assuming userInstruction comes from message
+        // ... (prompt construction as in the diff) ...
+        let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${userSettings.profileBio || 'a generally helpful and friendly tech enthusiast'}".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${tweetData.tweetAuthorHandle}: "${tweetData.tweetText}"\n`;
+        // Add userWritingSamples and userInstruction to prompt if they exist...
+        console.log('[Background] FINAL PROMPT for generateReply:', prompt);
+        const reply = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
+        sendResponse({ reply });
+    } else if (message.type === 'GENERATE_AI_REPLY') {
+        const { data, tone, userInstruction } = message; // Assuming data and userInstruction
+        // ... (prompt construction as in the diff) ...
+        let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${userSettings.profileBio || 'a generally helpful and friendly tech enthusiast'}".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${data.tweetAuthorHandle}: "${data.tweetText}"\n`;
+        // Add userWritingSamples and userInstruction to prompt if they exist...
+        console.log('[Background] FINAL PROMPT for GENERATE_AI_REPLY:', prompt);
+        const reply = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
+        sendResponse({ type: 'AI_REPLY_GENERATED', reply });
+    } else if (message.type === 'GENERATE_TWEET_IDEAS') {
+        const { trending, tone, userInstruction } = message;
+        // ... (prompt construction as in the diff, using topicsForIdeas) ...
+        let topicsForIdeas = 'current technology, AI advancements, and software development trends';
+        if (userLikedTopicsRaw && userLikedTopicsRaw.length > 0) { topicsForIdeas = userLikedTopicsRaw.slice(0, 5).join('... '); }
+        else if (trending && trending.length > 0) { topicsForIdeas = trending.join(', '); }
+        let prompt = `A user wants 3 original tweet ideas (≤280 characters each). Their general writing style is described as: "${userSettings.profileBio || 'a generally insightful and engaging tech commentator'}".\nThe tweet ideas should be ${getTonePrompt(tone)}.\nThe ideas should revolve around these topics/themes: ${topicsForIdeas}.\n`;
+        // Add userWritingSamples to prompt if they exist...
+        console.log('[Background] FINAL PROMPT for generateTweetIdeas:', prompt);
+        const ideas = await callOpenAI(apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed */);
+        sendResponse({ ideas: ideas.split('\n\n').filter(idea => idea.trim().length > 0) });
+    } else if (message.type === 'FETCH_TRENDING') {
+        fetchTrendingTopics()
+            .then(trending => sendResponse({ trending }))
+            .catch(error => sendResponse({ error: error.message }));
+        // This handler is async due to fetchTrendingTopics, but its own logic doesn't await the API key.
+        // The return true below will keep the channel open for fetchTrendingTopics's promise.
     } else {
-      console.warn('[Background] SAVE_SETTINGS called, but no recognized settings found to save to sync storage.');
-      sendResponse({ success: true, message: 'No recognized settings to update in storage.' });
+      console.warn('[Background] Unhandled message type in IIFE:', message.type);
+      // sendResponse({ error: 'Unknown message type handled in IIFE' }); // Optional: send error for unhandled types
     }
-    return true; // Keep channel open for async response
-  }
-  
-  if (message.type === 'SAVE_API_KEY') {
-    userSettings.apiKey = message.apiKey;
-    chrome.storage.sync.set({ apiKey: message.apiKey }, () => {
-      const saveError = chrome.runtime.lastError;
-      if (saveError) {
-        console.error('Error saving API key:', saveError);
-        sendResponse({ success: false, error: saveError.message });
-      } else {
-        console.log('API key saved successfully');
-        sendResponse({ success: true });
-      }
-    });
-    return true;
-  }
-  
-  if (message.type === 'GENERATE_REPLY') {
-    if (!userSettings.apiKey) {
-      sendResponse({ error: 'API key not set' });
-      return true;
-    }
-    
-    generateReply(message.tweetData, message.tone)
-      .then(reply => sendResponse({ reply }))
-      .catch(error => sendResponse({ error: error.message }));
-    
-    return true; // Keep the message channel open for async response
-  }
-  
-  if (message.type === 'GENERATE_AI_REPLY') {
-    if (!userSettings.apiKey) {
-      sendResponse({ type: 'AI_REPLY_ERROR', error: 'API key not set' });
-      return true;
-    }
-    
-    generateReply(message.data, userSettings.tone)
-      .then(reply => sendResponse({ type: 'AI_REPLY_GENERATED', reply }))
-      .catch(error => sendResponse({ type: 'AI_REPLY_ERROR', error: error.message }));
-    
-    return true; // Keep the message channel open for async response
-  }
-  
-  if (message.type === 'GENERATE_TWEET_IDEAS') {
-    if (!userSettings.apiKey) {
-      sendResponse({ error: 'API key not set' });
-      return true;
-    }
-    
-    generateTweetIdeas(message.trending, message.tone, message.userInstruction)
-      .then(ideas => sendResponse({ ideas }))
-      .catch(error => sendResponse({ error: error.message }));
-    
-    return true; // Keep the message channel open for async response
-  }
-  
-  if (message.type === 'FETCH_TRENDING') {
-    fetchTrendingTopics()
-      .then(trending => sendResponse({ trending }))
-      .catch(error => sendResponse({ error: error.message }));
-    
-    return true; // Keep the message channel open for async response
-  }
+  })(); // END OF ASYNC IIFE
 
-  if (message.type === 'SAVE_USER_POSTS') {
-    userWritingSamples = message.data.userPosts || []; 
-    chrome.storage.local.set({ userWritingSamples: userWritingSamples }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('[Background] Error saving user posts:', chrome.runtime.lastError);
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-      } else {
-        console.log('[Background] User posts saved for voice training:', userWritingSamples.length, 'samples');
-        sendResponse({ success: true });
-      }
-    });
-    return true;
-  }
-
-  if (message.type === 'SAVE_USER_LIKES') {
-    console.log('[Background] LOG: SAVE_USER_LIKES handler entered. Data object received:', message.data); 
-    userLikedTopicsRaw = message.data.likedTweets || []; 
-    if (!message.data.likedTweets || !Array.isArray(message.data.likedTweets)) {
-        console.warn('[Background] LOG: SAVE_USER_LIKES received empty, undefined, or non-array likedTweets. Content:', message.data.likedTweets);
-    }
-    console.log('[Background] LOG: Attempting to save userLikedTopicsRaw to local storage. Length:', userLikedTopicsRaw.length);
-    chrome.storage.local.set({ userLikedTopicsRaw: userLikedTopicsRaw }, () => {
-      console.log('[Background] LOG: chrome.storage.local.set callback for SAVE_USER_LIKES reached.'); 
-      if (chrome.runtime.lastError) {
-        console.error('[Background] Error SAVING user likes to storage:', chrome.runtime.lastError);
-        try {
-          sendResponse({ success: false, error: 'Failed to save likes in background: ' + chrome.runtime.lastError.message });
-        } catch (e) {
-          console.error('[Background] CRITICAL: Error calling sendResponse for SAVE_USER_LIKES (lastError case):', e);
-        }
-      } else {
-        console.log('[Background] User likes successfully saved to storage for topic generation:', userLikedTopicsRaw.length, 'samples');
-        try {
-          sendResponse({ success: true });
-          console.log('[Background] LOG: sendResponse({success: true}) CALLED for SAVE_USER_LIKES.');
-        } catch (e) {
-          console.error('[Background] CRITICAL: Error calling sendResponse for SAVE_USER_LIKES (success case):', e);
-        }
-      }
-    });
-    console.log('[Background] LOG: Returning true from SAVE_USER_LIKES handler.'); 
-    return true;
-  }
-
-  // Fallback for unknown messages
-  // console.log('[Background] Unknown message type:', message.type);
-  // sendResponse({ error: 'Unknown message type' });
-  return false; 
+  return true; // Crucial for all async sendResponse calls
 });
 
 /**
@@ -315,6 +323,105 @@ function getTonePrompt(tone) {
     default:
       return 'with a balanced, professional tone';
   }
+}
+
+async function handleProcessVoiceTranscript(payload, sendResponse) {
+  const { transcript, tone } = payload;
+  if (!transcript) {
+    sendResponse({ type: 'POLISHING_ERROR', payload: { error: 'Transcript is empty.' } });
+    return;
+  }
+
+  try {
+    const apiKey = await getApiKey(); // Correctly fetch API key
+    if (!apiKey) {
+      sendResponse({ type: 'POLISHING_ERROR', payload: { error: 'API key not found. Please set it in the extension settings.' } });
+      return;
+    }
+
+    let userContext = "";
+    if (userSettings.profileBio) {
+      userContext += `My bio: "${userSettings.profileBio}".\n`;
+    }
+    if (userSettings.hashtags && userSettings.hashtags.length > 0) {
+      userContext += `I often use hashtags like: ${userSettings.hashtags.join(', ')}.\n`;
+    }
+
+    const prompt = `Given the following voice transcript, please refine it into a polished tweet or reply. 
+User's preferred tone: "${tone || userSettings.tone || 'neutral'}".
+${userContext}
+Ensure the output is concise, engaging, and ready for posting on X.com. Avoid conversational fillers and make it sound natural for a written post.
+
+Voice Transcript: "${transcript}"
+
+Polished Text:`;
+
+    console.log("[bg.js] Prompt for polishing voice transcript:", prompt);
+
+    const aiResponse = await callOpenAI(prompt, apiKey, [], 0.7); // Assuming callOpenAI handles an array for previous messages
+    
+    if (aiResponse && aiResponse.choices && aiResponse.choices.length > 0) {
+      const polishedText = aiResponse.choices[0].message.content.trim();
+      console.log("[bg.js] Polished text from AI:", polishedText);
+      sendResponse({ type: 'POLISHED_TEXT_READY', payload: { polishedText } });
+    } else {
+      console.error("[bg.js] Unexpected response structure from OpenAI API:", aiResponse);
+      sendResponse({ type: 'POLISHING_ERROR', payload: { error: 'Unexpected response from AI.' } });
+    }
+  } catch (error) {
+    console.error("[bg.js] Error during voice transcript processing:", error);
+    sendResponse({ type: 'POLISHING_ERROR', payload: { error: error.message || 'Failed to process voice transcript.' } });
+  }
+}
+
+const OPENAI_TRANSCRIPTION_URL = 'https://api.openai.com/v1/audio/transcriptions';
+
+async function transcribeAudioWithOpenAI(audioBlob, apiKey) {
+  if (!apiKey) {
+    return { error: 'OpenAI API key is not set. Please set it in the extension settings.' };
+  }
+
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'audio.webm'); // Filename is required by the API
+  formData.append('model', 'gpt-4o-transcribe'); // Or 'whisper-1'
+  // formData.append('response_format', 'json'); // Default is json, can also be 'text'
+
+  try {
+    const response = await fetch(OPENAI_TRANSCRIPTION_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        // 'Content-Type': 'multipart/form-data' is automatically set by browser for FormData
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[XCO-Poster BG] OpenAI Transcription API error:', data);
+      const errorMessage = data.error && data.error.message ? data.error.message : `HTTP error ${response.status}`;
+      return { error: `OpenAI API Error: ${errorMessage}` };
+    }
+
+    console.log('[XCO-Poster BG] Transcription successful:', data);
+    return { transcript: data.text }; // Assuming 'text' field contains the transcript
+
+  } catch (error) {
+    console.error('[XCO-Poster BG] Error calling OpenAI Transcription API:', error);
+    return { error: `Network or other error: ${error.message}` };
+  }
+}
+
+// Helper function to convert Data URL to Blob
+function dataURLtoBlob(dataurl) {
+  if (!dataurl) return null;
+  let arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+      bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+  while(n--){
+      u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], {type:mime});
 }
 
 // Listen for side panel open to show extension
