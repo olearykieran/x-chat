@@ -31,10 +31,21 @@ export function renderComposeTab({ ideas, trending, onUseTweet, newsSource, guid
   
   // Show tweet ideas
   if (ideas && ideas.length > 0) {
+    // Filter out any ideas that contain separator text (happens during initial loading)
+    const validIdeas = ideas.filter(idea => {
+      // Skip ideas that still have the separator text or are too short
+      return !idea.includes('POST_SEPARATOR') && idea.length >= 10;
+    });
+    
+    // Only continue if we have valid ideas
+    if (validIdeas.length === 0) {
+      return renderEmptyState('compose');
+    }
+    
     const ideasContainer = document.createElement('div');
     ideasContainer.className = 'messages';
     
-    ideas.forEach((idea, index) => {
+    validIdeas.forEach((idea, index) => {
       const ideaEl = document.createElement('div');
       ideaEl.className = 'message ai slide-in';
       ideaEl.textContent = idea;

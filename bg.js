@@ -1231,9 +1231,11 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     // 9. Format the response
     const result = {
       ideas: cleanedTweets,
-      trending: trendingTopics,
-      newsSource: newsSource,
-      guidingQuestions: processedResponse.questions,
+      // Only include trending topics if they're from a real source
+      trending: newsSource === 'topics' || newsSource === 'web' ? trendingTopics : [],
+      // Only include newsSource if it's a real source
+      newsSource: newsSource === 'topics' || newsSource === 'web' ? newsSource : '',
+      guidingQuestions: processedResponse.questions
     };
 
     console.log("[Background] Generated tweets with context:", result);
