@@ -116,6 +116,84 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Important for async sendResponse
   }
   
+  // Handle USE_REPLY message to insert text into Twitter's reply box
+  if (request.type === 'USE_REPLY') {
+    console.log('[XCO-Poster] USE_REPLY request received with text:', request.text);
+    try {
+      // Find the tweet that is currently being replied to
+      let tweetArticle;
+      
+      // Check if we have a focused tweet first
+      if (focusedTweetData) {
+        // Find the tweet article that matches our focused data
+        const allTweetArticles = document.querySelectorAll('article[data-testid="tweet"]');
+        for (const article of allTweetArticles) {
+          const data = extractTweetData(article);
+          if (data && data.tweetText === focusedTweetData.tweetText && 
+              data.tweetAuthorHandle === focusedTweetData.tweetAuthorHandle) {
+            tweetArticle = article;
+            break;
+          }
+        }
+      }
+      
+      // If no focused tweet or couldn't find it, try to get the first visible tweet
+      if (!tweetArticle) {
+        tweetArticle = findFirstTweetInTimeline() || document.querySelector('article[data-testid="tweet"]');
+      }
+      
+      if (tweetArticle) {
+        // Find the reply button
+        const replyButton = tweetArticle.querySelector('[data-testid="reply"]');
+        
+        if (replyButton) {
+          console.log('[XCO-Poster] Found reply button, clicking it');
+          // Click the reply button to open the reply box
+          replyButton.click();
+          
+          // Wait for the reply textarea to appear
+          setTimeout(() => {
+            // The reply textarea typically has data-testid="tweetTextarea_0"
+            const replyTextarea = document.querySelector('[data-testid="tweetTextarea_0"]');
+            
+            if (replyTextarea) {
+              console.log('[XCO-Poster] Found reply textarea, inserting text');
+              
+              // Focus the textarea
+              replyTextarea.focus();
+              
+              // Set the text content
+              // We need to trigger both input event and set the content for it to work in X
+              replyTextarea.textContent = request.text;
+              
+              // Dispatch input event to ensure X recognizes the change
+              const inputEvent = new Event('input', { bubbles: true });
+              replyTextarea.dispatchEvent(inputEvent);
+              
+              // Send success response
+              sendResponse({ success: true });
+            } else {
+              console.error('[XCO-Poster] Could not find reply textarea after clicking reply button');
+              sendResponse({ error: 'Could not find reply box' });
+            }
+          }, 500); // Give it time for the reply box to appear
+          
+          return true; // For async response
+        } else {
+          console.error('[XCO-Poster] Could not find reply button on tweet');
+          sendResponse({ error: 'Could not find reply button' });
+        }
+      } else {
+        console.error('[XCO-Poster] Could not find tweet to reply to');
+        sendResponse({ error: 'No tweet found to reply to' });
+      }
+    } catch (error) {
+      console.error('[XCO-Poster] Error in USE_REPLY handler:', error);
+      sendResponse({ error: `Error inserting reply: ${error.message}` });
+    }
+    return true;
+  }
+  
   // NEW: Auto-select first post when reply tab is active
   if (request.type === 'GET_CURRENT_TWEET') {
     console.log('[XCO-Poster] GET_CURRENT_TWEET request received');
