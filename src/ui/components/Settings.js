@@ -425,29 +425,24 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   toneLabel.htmlFor = "defaultTone";
   toneLabel.textContent = "Default Tone";
 
-  const toneSelect = document.createElement("select");
-  toneSelect.id = "defaultTone";
-  toneSelect.name = "defaultTone";
-
-  const toneOptions = [
-    { value: "neutral", label: "Neutral" },
-    { value: "fun", label: "Fun" },
-    { value: "hot-take", label: "Hot Take" },
-    { value: "heartfelt", label: "Heartfelt" },
-  ];
-
-  toneOptions.forEach((option) => {
-    const optionEl = document.createElement("option");
-    optionEl.value = option.value;
-    optionEl.textContent = option.label;
-    if (settings.defaultTone === option.value) {
-      optionEl.selected = true;
-    }
-    toneSelect.appendChild(optionEl);
-  });
+  const toneValue = document.createElement("div");
+  toneValue.className = "static-value";
+  toneValue.textContent = "Neutral";
+  toneValue.style.padding = "8px 12px";
+  toneValue.style.backgroundColor = "#1E1E1E";
+  toneValue.style.borderRadius = "4px";
+  toneValue.style.color = "#E4E6EB";
+  
+  // Hidden input to maintain the form value
+  const toneInput = document.createElement("input");
+  toneInput.type = "hidden";
+  toneInput.id = "defaultTone";
+  toneInput.name = "defaultTone";
+  toneInput.value = "neutral";
 
   toneSection.appendChild(toneLabel);
-  toneSection.appendChild(toneSelect);
+  toneSection.appendChild(toneValue);
+  toneSection.appendChild(toneInput);
   form.appendChild(toneSection);
 
   // Permissions Settings Section

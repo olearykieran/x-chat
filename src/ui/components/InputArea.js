@@ -9,19 +9,21 @@ export function renderInputArea({ currentInput, selectedTone, inputPlaceholder, 
   const container = document.createElement('div');
   container.className = 'input-area';
   
-  // Tone selector
+  // Tone selector - only showing Neutral option
   const toneSelector = document.createElement('div');
   toneSelector.className = 'tone-selector';
   
-  TONE_OPTIONS.forEach(tone => {
+  // Only create the Neutral button
+  const neutralTone = TONE_OPTIONS.find(tone => tone.id === 'neutral');
+  if (neutralTone) {
     const toneButton = document.createElement('button');
-    toneButton.className = `tone-option ${selectedTone === tone.id ? 'active' : ''}`;
-    toneButton.textContent = tone.label;
-    toneButton.title = tone.description;
-    toneButton.addEventListener('click', () => onToneChange(tone.id));
+    toneButton.className = 'tone-option active'; // Always active
+    toneButton.textContent = neutralTone.label;
+    toneButton.title = neutralTone.description;
+    // No click handler needed as we're not allowing changes
     
     toneSelector.appendChild(toneButton);
-  });
+  }
   
   container.appendChild(toneSelector);
   
