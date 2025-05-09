@@ -29,7 +29,9 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
       null, // profile bio
       [], // writing samples
       [], // liked tweets
-      systemMessage // custom system message
+      systemMessage, // custom system message
+      "gpt-4.1-mini", // Use gpt-4.1-mini for web search as per OpenAI docs
+      0.7 // Lower temperature for more factual responses in web search
     );
 
     console.log("[Background] Web search results:", response);
@@ -1510,11 +1512,46 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     console.log("[Background] Combined unique topics:", allTopics);
     console.log("[DEBUG] Combined Unique Topics for Search/Prompt:", JSON.stringify(allTopics, null, 2));
 
-    // 3. Perform web search based on combined topics or default if none
-    let searchQuery = allTopics.length > 0 ? allTopics.join(", ") : "current trending topics in tech and AI";
+    // 3. Create a randomized search query using only a subset of topics to increase variety
+    let searchQuery;
+    
+    // Check if user provided a specific search instruction
     if (userInstruction && userInstruction.toLowerCase().includes("search for:")) {
         searchQuery = userInstruction.split("search for:")[1].trim();
         console.log(`[Background] Overriding search query based on user instruction: "${searchQuery}"`);
+    } 
+    // Otherwise, create a randomized query
+    else {
+        // Get current date components for randomization seed
+        const now = new Date();
+        const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+        
+        // Randomly decide query approach based on time
+        const queryApproach = (minuteOfDay % 4); // 0, 1, 2, or 3
+        
+        // Different query approaches for variety
+        if (queryApproach === 0 && allTopics.length > 0) {
+            // Approach 1: Select 1-2 random topics + trending news
+            const shuffledTopics = [...allTopics].sort(() => 0.5 - Math.random());
+            const selectedTopics = shuffledTopics.slice(0, Math.min(2, shuffledTopics.length));
+            searchQuery = `current trending news about ${selectedTopics.join(" OR ")}`;  
+        } 
+        else if (queryApproach === 1) {
+            // Approach 2: Focus on general trending topics with a broad category
+            const categories = ["tech", "AI", "software", "digital innovation", "social media", "web development"];
+            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+            searchQuery = `latest trending topics in ${randomCategory}`;
+        }
+        else if (queryApproach === 2) {
+            // Approach 3: Current news with a specific timeframe focus
+            searchQuery = "breaking news in technology last 24 hours";
+        }
+        else {
+            // Approach 4: General trending news
+            searchQuery = "current trending topics in tech and AI";
+        }
+        
+        console.log(`[Background] Generated randomized search query: "${searchQuery}" (approach: ${queryApproach})`);
     }
 
     console.log("[Background] Performing web search with query:", searchQuery);
@@ -1595,8 +1632,11 @@ User Profile & Interests:
 ${styleAndInterestContext || "User profile information not extensively available. Focus on general appeal for the topics in the news context."}
 
 Task:
-1.  Generate 5 distinct tweet ideas. Each tweet should be a complete thought, ready to post.
-    - Ensure variety in tone and approach for each tweet.
+1.  Generate 5 distinct tweet ideas, EACH ABOUT A COMPLETELY DIFFERENT TOPIC. Each tweet should be a complete thought, ready to post.
+    - CRITICAL: Each of the 5 tweets MUST cover a different topic or subject matter.
+    - Do not generate multiple variations or perspectives on the same topic.
+    - Draw from different parts of the news context or different user interests for each tweet.
+    - Ensure variety in tone, approach, and most importantly, subject matter for each tweet.
     - Separate each tweet idea with "${postSeparator}".
 2.  Generate 3 thought-provoking questions. These questions should:
     - Connect the News Context with the user's unique voice, style, and interests (as detailed in User Profile & Interests).
