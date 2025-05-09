@@ -16,15 +16,11 @@ export function renderTabs({ activeTab, onTabChange }) {
   composeTab.className = `tab ${activeTab === 'compose' ? 'active' : ''}`;
   composeTab.textContent = 'Compose';
   composeTab.addEventListener('click', () => onTabChange('compose'));
-
-  const scheduleTab = document.createElement('div');
-  scheduleTab.className = `tab ${activeTab === 'schedule' ? 'active' : ''}`;
-  scheduleTab.textContent = 'Schedule';
-  scheduleTab.addEventListener('click', () => onTabChange('schedule'));
+  
+  // Schedule tab removed as it's not currently functional
   
   tabs.appendChild(replyTab);
   tabs.appendChild(composeTab);
-  tabs.appendChild(scheduleTab);
   
   return tabs;
 }

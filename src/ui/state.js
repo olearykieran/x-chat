@@ -76,8 +76,7 @@ export async function initializeState() {
           messages: [] // Clear messages when switching to compose
         });
         
-        // Auto-generate tweet ideas
-        fetchTrendingAndGenerateIdeas();
+        // No longer auto-generating tweet ideas - waiting for user input instead
       }
 
       // Handle regenerated AI reply from bg.js
@@ -140,9 +139,9 @@ function checkCurrentContext() {
           // We're either in compose mode or no tweet is focused
           updateState({
             currentTweet: null,
+            activeTab: 'compose',
             loading: false
           });
-          fetchTrendingAndGenerateIdeas(); // Generate ideas in compose mode
         }
       });
     } else {
@@ -159,45 +158,19 @@ function checkCurrentContext() {
 }
 
 /**
- * Fetch trending topics and generate tweet ideas
+ * This function is maintained for backward compatibility but now only clears the UI state
+ * It no longer automatically fetches trending topics or generates tweets
+ * The new compose functionality relies on user input instead
  */
 async function fetchTrendingAndGenerateIdeas() {
-  updateState({ loading: true });
+  // Clear any existing tweet ideas and errors
+  updateState({ 
+    tweetIdeas: [],
+    error: null,
+    loading: false
+  });
   
-  try {
-    // Fetch trending topics
-    chrome.runtime.sendMessage({ type: 'FETCH_TRENDING' }, (response) => {
-      if (response && response.trending) {
-        updateState({ trendingTopics: response.trending });
-        
-        // Generate tweet ideas
-        chrome.runtime.sendMessage({ 
-          type: 'GENERATE_TWEET_IDEAS',
-          trending: response.trending,
-          tone: currentState.selectedTone
-        }, (ideaResponse) => {
-          updateState({ loading: false });
-          
-          if (ideaResponse && ideaResponse.ideas) {
-            updateState({ tweetIdeas: ideaResponse.ideas });
-          } else if (ideaResponse && ideaResponse.error) {
-            updateState({ error: ideaResponse.error });
-          }
-        });
-      } else {
-        updateState({ 
-          loading: false,
-          error: response && response.error ? response.error : 'Failed to fetch trending topics'
-        });
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching trends and generating ideas:', error);
-    updateState({ 
-      loading: false,
-      error: 'Failed to generate tweet ideas. Please try again.'
-    });
-  }
+  console.log('[State] fetchTrendingAndGenerateIdeas called, but no automatic fetching is performed in the new post polisher');
 }
 
 /**
@@ -454,10 +427,13 @@ export function toggleSettings() {
  * @param {string} tab - Tab to switch to
  */
 export function switchTab(tab) {
-  updateState({ activeTab: tab });
-  
-  if (tab === 'compose' && currentState.tweetIdeas.length === 0) {
-    fetchTrendingAndGenerateIdeas();
+  // Ensure we only switch to valid tabs now that Schedule is removed
+  if (tab === 'reply' || tab === 'compose') {
+    updateState({ activeTab: tab });
+  } else {
+    // Default to compose tab if an invalid tab is requested
+    console.warn(`[State] Attempted to switch to invalid tab: ${tab}. Defaulting to compose tab.`);
+    updateState({ activeTab: 'compose' });
   }
 }
 

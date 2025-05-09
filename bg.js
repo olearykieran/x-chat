@@ -1,4 +1,9 @@
-import { callOpenAI, fetchTrendingTopics } from "./lib/api.js";
+import {
+  callOpenAI,
+  fetchTrendingTopics,
+  generateScheduledPosts,
+  generatePolishedPosts,
+} from "./lib/api.js";
 import { DEFAULT_SETTINGS } from "./lib/constants.js";
 
 // Web search function using OpenAI's completions API with system instructions for web search
@@ -11,15 +16,15 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
     }
 
     const systemMessage =
-      "You are a highly specialized news summarization engine. Your sole purpose is to find and provide concise, factual summaries of the latest information (within the last 24-48 hours if possible) directly related to the user's query.\n\n"
-      + "CRITICAL INSTRUCTIONS FOR THIS TASK:\n"
-      + "1. Output: Provide a neutral, factual summary of the information. This could be a short paragraph or 2-3 key bullet points detailing recent developments or core facts.\n"
-      + "2. Content: Focus ONLY on verifiable facts and recent news.\n"
-      + "3. DO NOT generate opinions, interpretations, or suggestions.\n"
-      + "4. DO NOT format the output as a tweet, social media post, or any form of content suggestion.\n"
-      + "5. DO NOT engage in conversation or provide any text beyond the factual summary.\n"
-      + "6. If multiple distinct pieces of information are found for the query, summarize each briefly. Aim for diversity in the information presented if the query is broad.\n\n"
-      + "The user's query will follow. Provide only the summary.";
+      "You are a highly specialized news summarization engine. Your sole purpose is to find and provide concise, factual summaries of the latest information (within the last 24-48 hours if possible) directly related to the user's query.\n\n" +
+      "CRITICAL INSTRUCTIONS FOR THIS TASK:\n" +
+      "1. Output: Provide a neutral, factual summary of the information. This could be a short paragraph or 2-3 key bullet points detailing recent developments or core facts.\n" +
+      "2. Content: Focus ONLY on verifiable facts and recent news.\n" +
+      "3. DO NOT generate opinions, interpretations, or suggestions.\n" +
+      "4. DO NOT format the output as a tweet, social media post, or any form of content suggestion.\n" +
+      "5. DO NOT engage in conversation or provide any text beyond the factual summary.\n" +
+      "6. If multiple distinct pieces of information are found for the query, summarize each briefly. Aim for diversity in the information presented if the query is broad.\n\n" +
+      "The user's query will follow. Provide only the summary.";
 
     const response = await callOpenAI(
       userSettings.apiKey,
@@ -30,7 +35,7 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
       [], // writing samples
       [], // liked tweets
       systemMessage, // custom system message
-      "gpt-4.1-mini", // Use gpt-4.1-mini for web search as per OpenAI docs
+      "gpt-4.1-nano", // Use gpt-4.1-mini for web search as per OpenAI docs
       0.7 // Lower temperature for more factual responses in web search
     );
 
@@ -51,12 +56,13 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
 // Function to check API key and warn if not set
 function checkAndWarnApiKey() {
   if (!userSettings.apiKey) {
-    console.warn(
-      "[Background] API key is not set. Some features may not work."
-    );
+    console.warn("[Background] API key is not set. Some features may not work.");
     // Potentially send a message to UI or show a notification if desired
   } else {
-    console.log("[Background] API key check passed. userSettings.apiKey:", userSettings.apiKey);
+    console.log(
+      "[Background] API key check passed. userSettings.apiKey:",
+      userSettings.apiKey
+    );
   }
 }
 
@@ -81,19 +87,28 @@ function initializeAlarms() {
 
   // Create a new 'checkQueue' alarm to run periodically (e.g., every minute)
   chrome.alarms.create("checkQueue", { delayInMinutes: 1, periodInMinutes: 1 });
-  console.log("[Background] 'checkQueue' alarm created to run every minute after a 1-minute delay.");
+  console.log(
+    "[Background] 'checkQueue' alarm created to run every minute after a 1-minute delay."
+  );
 }
 
 // Initialize state
 // Ensure userSettings are initialized with defaults from constants.js
 let userSettings = {
   apiKey: DEFAULT_SETTINGS.apiKey !== undefined ? DEFAULT_SETTINGS.apiKey : null, // Default is ''
-  profileBio: DEFAULT_SETTINGS.profileBio !== undefined ? DEFAULT_SETTINGS.profileBio : "",
-  hashtags: Array.isArray(DEFAULT_SETTINGS.hashtags) ? [...DEFAULT_SETTINGS.hashtags] : [],
-  tone: DEFAULT_SETTINGS.defaultTone !== undefined ? DEFAULT_SETTINGS.defaultTone : "neutral", // Maps from defaultTone
-  useOwnKey: DEFAULT_SETTINGS.useOwnKey !== undefined ? DEFAULT_SETTINGS.useOwnKey : true // Default is true
+  profileBio:
+    DEFAULT_SETTINGS.profileBio !== undefined ? DEFAULT_SETTINGS.profileBio : "",
+  hashtags: Array.isArray(DEFAULT_SETTINGS.hashtags)
+    ? [...DEFAULT_SETTINGS.hashtags]
+    : [],
+  tone:
+    DEFAULT_SETTINGS.defaultTone !== undefined ? DEFAULT_SETTINGS.defaultTone : "neutral", // Maps from defaultTone
+  useOwnKey: DEFAULT_SETTINGS.useOwnKey !== undefined ? DEFAULT_SETTINGS.useOwnKey : true, // Default is true
 };
-console.log("[Background] Initial userSettings.useOwnKey after DEFAULT_SETTINGS:", userSettings.useOwnKey);
+console.log(
+  "[Background] Initial userSettings.useOwnKey after DEFAULT_SETTINGS:",
+  userSettings.useOwnKey
+);
 
 let userWritingSamples = []; // To store scraped user posts for voice training
 let userReplies = []; // To store scraped user replies for voice training
@@ -114,7 +129,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   // Only perform full storage clear on fresh install, not on update/reload
   if (details.reason === "install") {
-    console.log("[Background] onInstalled: Fresh install detected. Setting default values.");
+    console.log(
+      "[Background] onInstalled: Fresh install detected. Setting default values."
+    );
     // For fresh install, we'll set default values rather than clearing everything
     try {
       // Fetch any existing API key and settings before setting defaults
@@ -123,34 +140,45 @@ chrome.runtime.onInstalled.addListener(async (details) => {
           resolve(result);
         });
       });
-      
+
       // Set default values while preserving any existing API key
       const defaultSettings = {
         useOwnKey: existingData.useOwnKey !== undefined ? existingData.useOwnKey : true,
-        apiKey: existingData.apiKey || userSettings.apiKey
+        apiKey: existingData.apiKey || userSettings.apiKey,
       };
-      
+
       await new Promise((resolve, reject) => {
         chrome.storage.sync.set(defaultSettings, () => {
           if (chrome.runtime.lastError) {
-            console.error("[Background] onInstalled: Error setting default values:", chrome.runtime.lastError.message);
+            console.error(
+              "[Background] onInstalled: Error setting default values:",
+              chrome.runtime.lastError.message
+            );
             reject(chrome.runtime.lastError);
           } else {
-            console.log("[Background] onInstalled: Default values set successfully:", defaultSettings);
+            console.log(
+              "[Background] onInstalled: Default values set successfully:",
+              defaultSettings
+            );
             resolve();
           }
         });
       });
     } catch (error) {
-      console.error("[Background] onInstalled: Exception during setting defaults:", error);
+      console.error(
+        "[Background] onInstalled: Exception during setting defaults:",
+        error
+      );
     }
   } else {
-    console.log("[Background] onInstalled: Update/reload detected. Preserving existing settings.");
+    console.log(
+      "[Background] onInstalled: Update/reload detected. Preserving existing settings."
+    );
   }
   // Now, after attempting to clear, load data.
   // This ensures that loadDataFromStorage runs after the clear attempt.
   console.log("[Background] onInstalled: Proceeding to call loadDataFromStorage.");
-  await loadDataFromStorage(); 
+  await loadDataFromStorage();
   checkAndWarnApiKey(); // Moved from initialize function
   initializeAlarms(); // Moved from initialize function
   // Any other specific onInstalled logic can go here
@@ -172,11 +200,13 @@ async function initialize() {
 }
 
 // Call initialize on extension startup (when the background script loads)
-initialize().then(() => {
-  console.log("[Background] Initial script loading and setup complete.");
-}).catch(error => {
-  console.error("[Background] Error during initial script loading:", error);
-});
+initialize()
+  .then(() => {
+    console.log("[Background] Initial script loading and setup complete.");
+  })
+  .catch((error) => {
+    console.error("[Background] Error during initial script loading:", error);
+  });
 
 // Helper function to get API key from storage
 async function getApiKey() {
@@ -199,110 +229,130 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Function to inject and execute content script directly
     async function injectAndExecuteContentScript(tabId, url) {
       console.log(`[Background] Injecting content script directly into tab ${tabId}`);
-      
+
       try {
         // Check if we need to refresh the page first
-        if (!url.includes('x.com') && !url.includes('twitter.com')) {
-          console.log('[Background] Tab is not on X.com, cannot inject content script');
+        if (!url.includes("x.com") && !url.includes("twitter.com")) {
+          console.log("[Background] Tab is not on X.com, cannot inject content script");
           return false;
         }
-        
+
         // Execute the scrapeUserPostsForVoiceTraining function directly
         const result = await chrome.scripting.executeScript({
           target: { tabId },
           function: () => {
-            console.log('[XCO-Injected] Direct execution of voice training scraper');
-            
+            console.log("[XCO-Injected] Direct execution of voice training scraper");
+
             // Check if we're on a profile page
             const url = window.location.href;
             const isProfilePage = url.match(/\/[A-Za-z0-9_]+(\/with_replies)?$/);
-            
+
             if (!isProfilePage) {
-              console.error('[XCO-Injected] Not on a profile page');
-              return { error: 'Not on a profile page. Please navigate to your X profile.' };
+              console.error("[XCO-Injected] Not on a profile page");
+              return {
+                error: "Not on a profile page. Please navigate to your X profile.",
+              };
             }
-            
+
             // Basic implementation to scrape posts/replies
             const posts = [];
             const replies = [];
-            
+
             // Determine if we're on the replies tab
-            const isRepliesTab = window.location.pathname.endsWith('/with_replies');
+            const isRepliesTab = window.location.pathname.endsWith("/with_replies");
             console.log(`[XCO-Injected] On replies tab: ${isRepliesTab}`);
-            
+
             // Scrape tweets
-            document.querySelectorAll('article[data-testid="tweet"]').forEach(tweetElement => {
-              const tweetTextElement = tweetElement.querySelector('[data-testid="tweetText"]');
-              if (tweetTextElement && tweetTextElement.textContent) {
-                const tweetText = tweetTextElement.textContent.trim();
-                if (isRepliesTab) {
-                  replies.push(tweetText);
-                } else {
-                  posts.push(tweetText);
+            document
+              .querySelectorAll('article[data-testid="tweet"]')
+              .forEach((tweetElement) => {
+                const tweetTextElement = tweetElement.querySelector(
+                  '[data-testid="tweetText"]'
+                );
+                if (tweetTextElement && tweetTextElement.textContent) {
+                  const tweetText = tweetTextElement.textContent.trim();
+                  if (isRepliesTab) {
+                    replies.push(tweetText);
+                  } else {
+                    posts.push(tweetText);
+                  }
                 }
-              }
-            });
-            
+              });
+
             const result = {
               posts: posts,
               replies: replies,
               postsCount: posts.length,
               repliesCount: replies.length,
-              totalCount: posts.length + replies.length
+              totalCount: posts.length + replies.length,
             };
-            
-            console.log(`[XCO-Injected] Scraped ${result.postsCount} posts and ${result.repliesCount} replies`);
+
+            console.log(
+              `[XCO-Injected] Scraped ${result.postsCount} posts and ${result.repliesCount} replies`
+            );
             return result;
-          }
+          },
         });
-        
+
         if (!result || !result[0] || result[0].result.error) {
-          console.error('[Background] Direct script execution failed:', result);
-          return { error: result[0]?.result?.error || 'Script execution failed' };
+          console.error("[Background] Direct script execution failed:", result);
+          return { error: result[0]?.result?.error || "Script execution failed" };
         }
-        
-        console.log('[Background] Direct script execution result:', result[0].result);
+
+        console.log("[Background] Direct script execution result:", result[0].result);
         return result[0].result;
       } catch (error) {
-        console.error('[Background] Error injecting script:', error);
+        console.error("[Background] Error injecting script:", error);
         return { error: `Error injecting script: ${error.message}` };
       }
     }
 
     // Handle collectVoiceTrainingData action from settings
     if (message.action === "collectVoiceTrainingData") {
-      console.log("[Background] Received collectVoiceTrainingData action from settings", message);
-      
+      console.log(
+        "[Background] Received collectVoiceTrainingData action from settings",
+        message
+      );
+
       // Get the active tab
       try {
         // First get all tabs, then find the one with the matching URL
         const tabs = await chrome.tabs.query({});
         console.log(`[Background] Found ${tabs.length} tabs total`);
-        
+
         // Try to find tab with the matching URL if provided, otherwise use active tab
         let targetTab = null;
-        
+
         if (message.activeTabUrl) {
           console.log(`[Background] Looking for tab with URL: ${message.activeTabUrl}`);
           // Find tab with the matching URL
-          targetTab = tabs.find(tab => tab.url && tab.url.includes(message.activeTabUrl));
+          targetTab = tabs.find(
+            (tab) => tab.url && tab.url.includes(message.activeTabUrl)
+          );
         }
-        
+
         // Fallback to active tab if no matching URL or no URL provided
         if (!targetTab) {
           console.log("[Background] No matching tab found, using active tab");
-          const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          const activeTabs = await chrome.tabs.query({
+            active: true,
+            currentWindow: true,
+          });
           targetTab = activeTabs[0];
         }
-        
+
         if (!targetTab || !targetTab.id) {
           console.error("[Background] No valid tab found for voice data collection");
-          sendResponse({ error: "No valid tab found. Please refresh the page and try again." });
+          sendResponse({
+            error: "No valid tab found. Please refresh the page and try again.",
+          });
           return true;
         }
-        
-        console.log(`[Background] Found target tab with ID: ${targetTab.id}, URL: ${targetTab.url}`);
-        
+
+        console.log(
+          `[Background] Found target tab with ID: ${targetTab.id}, URL: ${targetTab.url}`
+        );
+
         // First try to send message to content script
         try {
           chrome.tabs.sendMessage(
@@ -310,89 +360,143 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             { action: "scrapeUserPostsForVoiceTraining" },
             async (response) => {
               if (chrome.runtime.lastError) {
-                console.warn("[Background] Error sending message to content script, falling back to direct injection:", chrome.runtime.lastError);
-                
+                console.warn(
+                  "[Background] Error sending message to content script, falling back to direct injection:",
+                  chrome.runtime.lastError
+                );
+
                 // Content script not responding, try direct injection instead
-                const result = await injectAndExecuteContentScript(targetTab.id, targetTab.url);
-                
+                const result = await injectAndExecuteContentScript(
+                  targetTab.id,
+                  targetTab.url
+                );
+
                 if (result.error) {
                   sendResponse({ error: result.error });
                   return;
                 }
-                
+
                 // Get existing data from storage first
-                const existingData = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
-                console.log('[Background] DEBUG: Existing data before direct injection update:', {
-                  postsCount: existingData.userWritingSamples ? existingData.userWritingSamples.length : 0,
-                  repliesCount: existingData.userReplies ? existingData.userReplies.length : 0
-                });
-                
+                const existingData = await chrome.storage.local.get([
+                  "userWritingSamples",
+                  "userReplies",
+                ]);
+                console.log(
+                  "[Background] DEBUG: Existing data before direct injection update:",
+                  {
+                    postsCount: existingData.userWritingSamples
+                      ? existingData.userWritingSamples.length
+                      : 0,
+                    repliesCount: existingData.userReplies
+                      ? existingData.userReplies.length
+                      : 0,
+                  }
+                );
+
                 // Only update what's collected in this injection, preserve the rest
                 if (result.posts && result.posts.length > 0) {
                   // New posts provided, update only posts
                   userWritingSamples = result.posts;
-                  console.log(`[Background] Direct injection updating posts with ${userWritingSamples.length} new items`);
+                  console.log(
+                    `[Background] Direct injection updating posts with ${userWritingSamples.length} new items`
+                  );
                 } else {
                   // No new posts, keep existing ones
                   userWritingSamples = existingData.userWritingSamples || [];
-                  console.log(`[Background] Direct injection preserving ${userWritingSamples.length} existing posts`);
+                  console.log(
+                    `[Background] Direct injection preserving ${userWritingSamples.length} existing posts`
+                  );
                 }
-                
+
                 if (result.replies && result.replies.length > 0) {
                   // New replies provided, update only replies
                   userReplies = result.replies;
-                  console.log(`[Background] Direct injection updating replies with ${userReplies.length} new items`);
+                  console.log(
+                    `[Background] Direct injection updating replies with ${userReplies.length} new items`
+                  );
                 } else {
                   // No new replies, keep existing ones
                   userReplies = existingData.userReplies || [];
-                  console.log(`[Background] Direct injection preserving ${userReplies.length} existing replies`);
+                  console.log(
+                    `[Background] Direct injection preserving ${userReplies.length} existing replies`
+                  );
                 }
-                
-                console.log(`[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
-                console.log('[Background] DEBUG: Final userReplies array:', userReplies);
-                
+
+                console.log(
+                  `[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`
+                );
+                console.log("[Background] DEBUG: Final userReplies array:", userReplies);
+
                 // Log the updated global variables
-                console.log('[Background] DEBUG: Global userWritingSamples length:', userWritingSamples.length);
-                console.log('[Background] DEBUG: Global userReplies length:', userReplies.length);
-                
+                console.log(
+                  "[Background] DEBUG: Global userWritingSamples length:",
+                  userWritingSamples.length
+                );
+                console.log(
+                  "[Background] DEBUG: Global userReplies length:",
+                  userReplies.length
+                );
+
                 // Save to local storage
-                await chrome.storage.local.set({ 
-                  userWritingSamples: userWritingSamples,
-                  userReplies: userReplies 
-                }, () => {
-                  if (chrome.runtime.lastError) {
-                    console.error('[Background] ERROR saving to storage:', chrome.runtime.lastError);
-                  } else {
-                    console.log('[Background] DEBUG: Successfully saved to chrome.storage.local');
-                    // Verify what was saved by reading it back
-                    chrome.storage.local.get(['userReplies', 'userWritingSamples'], (result) => {
-                      console.log('[Background] DEBUG: Verification after save - posts:', 
-                        result.userWritingSamples ? result.userWritingSamples.length : 'undefined',
-                        'replies:', result.userReplies ? result.userReplies.length : 'undefined');
-                    });
+                await chrome.storage.local.set(
+                  {
+                    userWritingSamples: userWritingSamples,
+                    userReplies: userReplies,
+                  },
+                  () => {
+                    if (chrome.runtime.lastError) {
+                      console.error(
+                        "[Background] ERROR saving to storage:",
+                        chrome.runtime.lastError
+                      );
+                    } else {
+                      console.log(
+                        "[Background] DEBUG: Successfully saved to chrome.storage.local"
+                      );
+                      // Verify what was saved by reading it back
+                      chrome.storage.local.get(
+                        ["userReplies", "userWritingSamples"],
+                        (result) => {
+                          console.log(
+                            "[Background] DEBUG: Verification after save - posts:",
+                            result.userWritingSamples
+                              ? result.userWritingSamples.length
+                              : "undefined",
+                            "replies:",
+                            result.userReplies ? result.userReplies.length : "undefined"
+                          );
+                        }
+                      );
+                    }
                   }
-                });
-                
-                sendResponse({ 
-                  success: true, 
+                );
+
+                sendResponse({
+                  success: true,
                   status: `Successfully collected ${result.totalCount} items for voice training (${result.postsCount} posts, ${result.repliesCount} replies).`,
                   count: result.totalCount,
                   postsCount: result.postsCount,
-                  repliesCount: result.repliesCount
+                  repliesCount: result.repliesCount,
                 });
               } else {
-                console.log("[Background] Received response from content script:", response);
+                console.log(
+                  "[Background] Received response from content script:",
+                  response
+                );
                 sendResponse({ success: true, ...response });
               }
             }
           );
         } catch (msgError) {
-          console.error('[Background] Exception trying to send message:', msgError);
+          console.error("[Background] Exception trying to send message:", msgError);
           // Try direct injection as fallback
           const result = await injectAndExecuteContentScript(targetTab.id, targetTab.url);
-          sendResponse({ success: result.error ? false : true, ...(result.error ? { error: result.error } : result) });
+          sendResponse({
+            success: result.error ? false : true,
+            ...(result.error ? { error: result.error } : result),
+          });
         }
-        
+
         return true; // Async response
       } catch (error) {
         console.error("[Background] Error in collectVoiceTrainingData handler:", error);
@@ -400,7 +504,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
       }
     }
-    
+
     // Handlers that don't need an API key or have special handling first
     if (message.type === "SAVE_SETTINGS") {
       console.log(
@@ -422,12 +526,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             );
             delete settingsToSync.apiKey; // Do not let SAVE_SETTINGS overwrite/save apiKey
           }
-          console.log("[Background] SAVE_SETTINGS - message.settings.useOwnKey received:", message.settings.useOwnKey);
+          console.log(
+            "[Background] SAVE_SETTINGS - message.settings.useOwnKey received:",
+            message.settings.useOwnKey
+          );
           const tempSettingsToSync = { ...settingsToSync }; // Temp for logging before potential modification
-          console.log("[Background] SAVE_SETTINGS - settingsToSync.useOwnKey BEFORE sync.set:", tempSettingsToSync.useOwnKey);
+          console.log(
+            "[Background] SAVE_SETTINGS - settingsToSync.useOwnKey BEFORE sync.set:",
+            tempSettingsToSync.useOwnKey
+          );
 
-          console.log("[Background] SAVE_SETTINGS raw message.settings received:", JSON.parse(JSON.stringify(message.settings))); // Log the full received settings
-          console.log("[Background] SAVE_SETTINGS - Full settingsToSync object BEFORE sync.set:", JSON.parse(JSON.stringify(settingsToSync)));
+          console.log(
+            "[Background] SAVE_SETTINGS raw message.settings received:",
+            JSON.parse(JSON.stringify(message.settings))
+          ); // Log the full received settings
+          console.log(
+            "[Background] SAVE_SETTINGS - Full settingsToSync object BEFORE sync.set:",
+            JSON.parse(JSON.stringify(settingsToSync))
+          );
 
           await chrome.storage.sync.set(settingsToSync);
           // Update local userSettings state in bg.js
@@ -436,9 +552,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (message.settings.defaultTone !== undefined) {
             userSettings.tone = message.settings.defaultTone;
           }
-          console.log("[Background] SAVE_SETTINGS - userSettings.useOwnKey AFTER Object.assign:", userSettings.useOwnKey);
+          console.log(
+            "[Background] SAVE_SETTINGS - userSettings.useOwnKey AFTER Object.assign:",
+            userSettings.useOwnKey
+          );
 
-          console.log("[Background] Settings saved and local userSettings updated:", JSON.parse(JSON.stringify(userSettings)));
+          console.log(
+            "[Background] Settings saved and local userSettings updated:",
+            JSON.parse(JSON.stringify(userSettings))
+          );
           sendResponse({ success: true });
         } else {
           console.error(
@@ -462,32 +584,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await chrome.storage.sync.set({ apiKey: message.apiKey });
       // Also update local state
       userSettings.apiKey = message.apiKey;
-      
+
       // Handle useOwnKey setting that comes with saving an API key
       if (message.useOwnKey !== undefined) {
-        console.log("[Background] SAVE_API_KEY: Also received useOwnKey=", message.useOwnKey);
+        console.log(
+          "[Background] SAVE_API_KEY: Also received useOwnKey=",
+          message.useOwnKey
+        );
         await chrome.storage.sync.set({ useOwnKey: message.useOwnKey });
         userSettings.useOwnKey = message.useOwnKey;
-        console.log("[Background] SAVE_API_KEY: userSettings.useOwnKey set to:", message.useOwnKey, "Saved to sync.");
+        console.log(
+          "[Background] SAVE_API_KEY: userSettings.useOwnKey set to:",
+          message.useOwnKey,
+          "Saved to sync."
+        );
       }
-      
-      console.log("[Background] SAVE_API_KEY: userSettings.apiKey set to:", message.apiKey, "Saved to sync.");
-      
+
+      console.log(
+        "[Background] SAVE_API_KEY: userSettings.apiKey set to:",
+        message.apiKey,
+        "Saved to sync."
+      );
+
       sendResponse({ success: true });
     } else if (message.type === "GET_USER_PROFILE_DATA") {
       // Return user profile data (posts, replies, liked posts, etc.)
       console.log("[Background] Received request for user profile data");
-      getUserProfileData().then(profileData => {
-        console.log("[Background] Returning user profile data:", {
-          postsCount: profileData.posts?.length || 0,
-          repliesCount: profileData.replies?.length || 0,
-          likedPostsCount: profileData.likedPosts?.length || 0
+      getUserProfileData()
+        .then((profileData) => {
+          console.log("[Background] Returning user profile data:", {
+            postsCount: profileData.posts?.length || 0,
+            repliesCount: profileData.replies?.length || 0,
+            likedPostsCount: profileData.likedPosts?.length || 0,
+          });
+          sendResponse(profileData);
+        })
+        .catch((error) => {
+          console.error("[Background] Error getting user profile data:", error);
+          sendResponse({ error: error.message });
         });
-        sendResponse(profileData);
-      }).catch(error => {
-        console.error("[Background] Error getting user profile data:", error);
-        sendResponse({ error: error.message });
-      });
       return true; // Indicates we'll call sendResponse asynchronously
     } else if (message.type === "COLLECT_USER_DATA_FOR_TRAINING") {
       console.log(
@@ -510,79 +645,119 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     // Add SAVE_USER_POSTS, SAVE_USER_LIKES if they are simple storage operations not needing the general apiKey
     if (message.type === "SAVE_USER_POSTS") {
-      console.log('[Background] DEBUG: Received SAVE_USER_POSTS message with data:', message.data);
-      
+      console.log(
+        "[Background] DEBUG: Received SAVE_USER_POSTS message with data:",
+        message.data
+      );
+
       // Check the structure of the data
-      if (message.data.userPosts === undefined && message.data.userReplies === undefined) {
-        console.error('[Background] ERROR: Missing both posts and replies in SAVE_USER_POSTS message');
-        sendResponse({ success: false, error: 'Missing both posts and replies data' });
+      if (
+        message.data.userPosts === undefined &&
+        message.data.userReplies === undefined
+      ) {
+        console.error(
+          "[Background] ERROR: Missing both posts and replies in SAVE_USER_POSTS message"
+        );
+        sendResponse({ success: false, error: "Missing both posts and replies data" });
         return;
       }
-      
+
       // First, get existing data from storage to preserve what's already there
       try {
         // Get existing data from storage
-        const existingData = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
-        console.log('[Background] DEBUG: Existing data in storage:', {
-          postsCount: existingData.userWritingSamples ? existingData.userWritingSamples.length : 0,
-          repliesCount: existingData.userReplies ? existingData.userReplies.length : 0
+        const existingData = await chrome.storage.local.get([
+          "userWritingSamples",
+          "userReplies",
+        ]);
+        console.log("[Background] DEBUG: Existing data in storage:", {
+          postsCount: existingData.userWritingSamples
+            ? existingData.userWritingSamples.length
+            : 0,
+          repliesCount: existingData.userReplies ? existingData.userReplies.length : 0,
         });
-        
+
         // Only update what's provided, preserve the rest
         if (message.data.userPosts && message.data.userPosts.length > 0) {
           // New posts provided, update only posts
           userWritingSamples = message.data.userPosts;
-          console.log(`[Background] Updating posts with ${userWritingSamples.length} new items`);
+          console.log(
+            `[Background] Updating posts with ${userWritingSamples.length} new items`
+          );
         } else {
           // No new posts, keep existing ones
           userWritingSamples = existingData.userWritingSamples || [];
-          console.log(`[Background] Preserving ${userWritingSamples.length} existing posts`);
+          console.log(
+            `[Background] Preserving ${userWritingSamples.length} existing posts`
+          );
         }
-        
+
         if (message.data.userReplies && message.data.userReplies.length > 0) {
           // New replies provided, update only replies
           userReplies = message.data.userReplies;
-          console.log(`[Background] Updating replies with ${userReplies.length} new items`);
+          console.log(
+            `[Background] Updating replies with ${userReplies.length} new items`
+          );
         } else {
           // No new replies, keep existing ones
           userReplies = existingData.userReplies || [];
           console.log(`[Background] Preserving ${userReplies.length} existing replies`);
         }
-        
-        console.log(`[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
-        console.log('[Background] DEBUG: Final userReplies array:', userReplies);
-        
+
+        console.log(
+          `[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`
+        );
+        console.log("[Background] DEBUG: Final userReplies array:", userReplies);
+
         // Log the updated global variables
-        console.log('[Background] DEBUG: Global userWritingSamples length:', userWritingSamples.length);
-        console.log('[Background] DEBUG: Global userReplies length:', userReplies.length);
-        
+        console.log(
+          "[Background] DEBUG: Global userWritingSamples length:",
+          userWritingSamples.length
+        );
+        console.log("[Background] DEBUG: Global userReplies length:", userReplies.length);
+
         // Save both to local storage
-        await chrome.storage.local.set({ 
-          userWritingSamples: userWritingSamples,
-          userReplies: userReplies 
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('[Background] ERROR saving to storage:', chrome.runtime.lastError);
-          } else {
-            console.log('[Background] DEBUG: Successfully saved to chrome.storage.local');
-            // Verify what was saved by reading it back
-            chrome.storage.local.get(['userReplies', 'userWritingSamples'], (result) => {
-              console.log('[Background] DEBUG: Verification after save - posts:', 
-                result.userWritingSamples ? result.userWritingSamples.length : 'undefined',
-                'replies:', result.userReplies ? result.userReplies.length : 'undefined');
-            });
+        await chrome.storage.local.set(
+          {
+            userWritingSamples: userWritingSamples,
+            userReplies: userReplies,
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                "[Background] ERROR saving to storage:",
+                chrome.runtime.lastError
+              );
+            } else {
+              console.log(
+                "[Background] DEBUG: Successfully saved to chrome.storage.local"
+              );
+              // Verify what was saved by reading it back
+              chrome.storage.local.get(
+                ["userReplies", "userWritingSamples"],
+                (result) => {
+                  console.log(
+                    "[Background] DEBUG: Verification after save - posts:",
+                    result.userWritingSamples
+                      ? result.userWritingSamples.length
+                      : "undefined",
+                    "replies:",
+                    result.userReplies ? result.userReplies.length : "undefined"
+                  );
+                }
+              );
+            }
           }
-        });
-        
-        sendResponse({ 
-          success: true, 
-          postsCount: userWritingSamples.length, 
+        );
+
+        sendResponse({
+          success: true,
+          postsCount: userWritingSamples.length,
           repliesCount: userReplies.length,
-          message: 'Data saved successfully, preserving existing content'
+          message: "Data saved successfully, preserving existing content",
         });
       } catch (error) {
-        console.error('[Background] Error handling SAVE_USER_POSTS:', error);
-        sendResponse({ success: false, error: 'Error saving data: ' + error.message });
+        console.error("[Background] Error handling SAVE_USER_POSTS:", error);
+        sendResponse({ success: false, error: "Error saving data: " + error.message });
       }
       return;
     }
@@ -651,15 +826,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === "IS_API_KEY_SET") {
       sendResponse({ isSet: !!userSettings.apiKey });
     } else if (message.type === "GENERATE_TWEETS") {
+      const { tone, userInput } = message;
+      if (!userInput || !userInput.trim()) {
+        sendResponse({ error: "No input provided for post generation." });
+        return;
+      }
       try {
-        console.log("[Background] Generating tweet ideas with news and interests");
-        const { tone } = message;
-        const results = await generateTweetsWithNews(tone || userSettings.tone);
-        console.log("[Background] Generated tweet ideas:", results);
-        sendResponse(results);
+        console.log("[Background] Generating polished posts from user input:", userInput);
+        // Prepare user profile data
+        const userProfile = {
+          profileBio: userSettings.profileBio,
+          writingSamples: userWritingSamples || [],
+          tone: tone || userSettings.tone,
+        };
+
+        // Generate polished variations of the user's post idea
+        const posts = await generatePolishedPosts(
+          userSettings.apiKey,
+          userInput,
+          userProfile
+        );
+
+        console.log("[Background] Generated polished posts:", posts);
+        sendResponse({ ideas: posts });
       } catch (error) {
-        console.error("[Background] Error generating tweet ideas:", error);
-        sendResponse({ error: `Error generating tweets: ${error.message}` });
+        console.error("[Background] Error generating polished posts:", error);
+        sendResponse({ error: error.message });
       }
     } else if (message.type === "GET_TWEET_TEXT") {
       if (!message.payload || !message.payload.prompt) {
@@ -801,8 +993,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         
         ${
-          userInstruction ? `The user provided this specific instruction for the reply: "${userInstruction}". Prioritize this instruction while maintaining the overall style.
-` : ""
+          userInstruction
+            ? `The user provided this specific instruction for the reply: "${userInstruction}". Prioritize this instruction while maintaining the overall style.
+`
+            : ""
         }
 
         STRICT REQUIREMENTS FOR REPLIES:
@@ -1493,7 +1687,10 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     // Ensure all data is loaded from storage first
     await loadDataFromStorage();
     console.log("[Background] Data loading complete. Proceeding with tweet generation.");
-    console.log("[DEBUG] Global userLikedTopicsRaw after loadDataFromStorage:", JSON.stringify(userLikedTopicsRaw ? userLikedTopicsRaw.slice(0,3) : 'N/A'));
+    console.log(
+      "[DEBUG] Global userLikedTopicsRaw after loadDataFromStorage:",
+      JSON.stringify(userLikedTopicsRaw ? userLikedTopicsRaw.slice(0, 3) : "N/A")
+    );
 
     // 1. Extract topics from user bio
     const bioTopics = await extractTopicsFromBio(userSettings.profileBio);
@@ -1503,62 +1700,84 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     // 2. Analyze liked posts for topics
     const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw); // Use the global userLikedTopicsRaw
     console.log("[Background] Topics from liked posts:", likedPostsTopics);
-    console.log("[DEBUG] Extracted Liked Posts Topics:", JSON.stringify(likedPostsTopics, null, 2));
+    console.log(
+      "[DEBUG] Extracted Liked Posts Topics:",
+      JSON.stringify(likedPostsTopics, null, 2)
+    );
 
     // Combine topics and remove duplicates
-    const allTopics = [
-      ...new Set([...(bioTopics || []), ...(likedPostsTopics || [])]),
-    ];
+    const allTopics = [...new Set([...(bioTopics || []), ...(likedPostsTopics || [])])];
     console.log("[Background] Combined unique topics:", allTopics);
-    console.log("[DEBUG] Combined Unique Topics for Search/Prompt:", JSON.stringify(allTopics, null, 2));
+    console.log(
+      "[DEBUG] Combined Unique Topics for Search/Prompt:",
+      JSON.stringify(allTopics, null, 2)
+    );
 
     // 3. Create a randomized search query using only a subset of topics to increase variety
     let searchQuery;
-    
+
     // Check if user provided a specific search instruction
     if (userInstruction && userInstruction.toLowerCase().includes("search for:")) {
-        searchQuery = userInstruction.split("search for:")[1].trim();
-        console.log(`[Background] Overriding search query based on user instruction: "${searchQuery}"`);
-    } 
+      searchQuery = userInstruction.split("search for:")[1].trim();
+      console.log(
+        `[Background] Overriding search query based on user instruction: "${searchQuery}"`
+      );
+    }
     // Otherwise, create a randomized query
     else {
-        // Get current date components for randomization seed
-        const now = new Date();
-        const minuteOfDay = now.getHours() * 60 + now.getMinutes();
-        
-        // Randomly decide query approach based on time
-        const queryApproach = (minuteOfDay % 4); // 0, 1, 2, or 3
-        
-        // Different query approaches for variety
-        if (queryApproach === 0 && allTopics.length > 0) {
-            // Approach 1: Select 1-2 random topics + trending news
-            const shuffledTopics = [...allTopics].sort(() => 0.5 - Math.random());
-            const selectedTopics = shuffledTopics.slice(0, Math.min(2, shuffledTopics.length));
-            searchQuery = `current trending news about ${selectedTopics.join(" OR ")}`;  
-        } 
-        else if (queryApproach === 1) {
-            // Approach 2: Focus on general trending topics with a broad category
-            const categories = ["tech", "AI", "software", "digital innovation", "social media", "web development"];
-            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-            searchQuery = `latest trending topics in ${randomCategory}`;
-        }
-        else if (queryApproach === 2) {
-            // Approach 3: Current news with a specific timeframe focus
-            searchQuery = "breaking news in technology last 24 hours";
-        }
-        else {
-            // Approach 4: General trending news
-            searchQuery = "current trending topics in tech and AI";
-        }
-        
-        console.log(`[Background] Generated randomized search query: "${searchQuery}" (approach: ${queryApproach})`);
+      // Get current date components for randomization seed
+      const now = new Date();
+      const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+
+      // Randomly decide query approach based on time
+      const queryApproach = minuteOfDay % 4; // 0, 1, 2, or 3
+
+      // Different query approaches for variety
+      if (queryApproach === 0 && allTopics.length > 0) {
+        // Approach 1: Select 1-2 random topics + trending news
+        const shuffledTopics = [...allTopics].sort(() => 0.5 - Math.random());
+        const selectedTopics = shuffledTopics.slice(
+          0,
+          Math.min(2, shuffledTopics.length)
+        );
+        searchQuery = `current trending news about ${selectedTopics.join(" OR ")}`;
+      } else if (queryApproach === 1) {
+        // Approach 2: Focus on general trending topics with a broad category
+        const categories = [
+          "tech",
+          "AI",
+          "software",
+          "digital innovation",
+          "social media",
+          "web development",
+        ];
+        const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+        searchQuery = `latest trending topics in ${randomCategory}`;
+      } else if (queryApproach === 2) {
+        // Approach 3: Current news with a specific timeframe focus
+        searchQuery = "breaking news in technology last 24 hours";
+      } else {
+        // Approach 4: General trending news
+        searchQuery = "current trending topics in tech and AI";
+      }
+
+      console.log(
+        `[Background] Generated randomized search query: "${searchQuery}" (approach: ${queryApproach})`
+      );
     }
 
     console.log("[Background] Performing web search with query:", searchQuery);
     const searchResults = await searchWeb(searchQuery);
-    console.log("[DEBUG] Raw Web Search Results:", JSON.stringify(searchResults, null, 2));
+    console.log(
+      "[DEBUG] Raw Web Search Results:",
+      JSON.stringify(searchResults, null, 2)
+    );
     if (searchResults && searchResults.text) {
-      console.log("[DEBUG] Web Search Results Text:", searchResults.text.substring(0, 500) + (searchResults.text.length > 500 ? "... (truncated)" : ""));
+      console.log(
+        "[DEBUG] Web Search Results Text:",
+        searchResults.text.substring(0, 500) +
+          (searchResults.text.length > 500 ? "... (truncated)" : "")
+      );
     }
 
     // Prepare context for OpenAI
@@ -1603,15 +1822,33 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
       styleAndInterestContext += `IMPORTANT - Match this bio/style: ${userSettings.profileBio}\n`;
     }
     // Assuming userWritingSamples and userReplies are accessible in this scope (e.g., global or passed in)
-    if (typeof userWritingSamples !== 'undefined' && userWritingSamples && userWritingSamples.length > 0) {
-      styleAndInterestContext += `User's writing samples (match style and topics):\n${userWritingSamples.slice(0, 3).map(sample => typeof sample === 'string' ? sample : (sample && sample.text ? sample.text : '')).filter(Boolean).join("\n---\n")}\n`;
+    if (
+      typeof userWritingSamples !== "undefined" &&
+      userWritingSamples &&
+      userWritingSamples.length > 0
+    ) {
+      styleAndInterestContext += `User's writing samples (match style and topics):\n${userWritingSamples
+        .slice(0, 3)
+        .map((sample) =>
+          typeof sample === "string" ? sample : sample && sample.text ? sample.text : ""
+        )
+        .filter(Boolean)
+        .join("\n---\n")}\n`;
     }
-    if (typeof userReplies !== 'undefined' && userReplies && userReplies.length > 0) {
-      styleAndInterestContext += `User's past replies (emulate tone and common themes):\n${userReplies.slice(0, 3).map(reply => typeof reply === 'string' ? reply : (reply && reply.text ? reply.text : '')).filter(Boolean).join("\n---\n")}\n`;
+    if (typeof userReplies !== "undefined" && userReplies && userReplies.length > 0) {
+      styleAndInterestContext += `User's past replies (emulate tone and common themes):\n${userReplies
+        .slice(0, 3)
+        .map((reply) =>
+          typeof reply === "string" ? reply : reply && reply.text ? reply.text : ""
+        )
+        .filter(Boolean)
+        .join("\n---\n")}\n`;
     }
     // likedPostsTopics is defined earlier in the function
     if (likedPostsTopics && likedPostsTopics.length > 0) {
-      styleAndInterestContext += `User's liked topics (reflect these interests): ${likedPostsTopics.join(", ")}\n`;
+      styleAndInterestContext += `User's liked topics (reflect these interests): ${likedPostsTopics.join(
+        ", "
+      )}\n`;
     }
 
     const prompt = `
@@ -1629,7 +1866,10 @@ News Context:
 ${newsContext}
 
 User Profile & Interests:
-${styleAndInterestContext || "User profile information not extensively available. Focus on general appeal for the topics in the news context."}
+${
+  styleAndInterestContext ||
+  "User profile information not extensively available. Focus on general appeal for the topics in the news context."
+}
 
 Task:
 1.  Generate 5 distinct tweet ideas, EACH ABOUT A COMPLETELY DIFFERENT TOPIC. Each tweet should be a complete thought, ready to post.
@@ -1662,7 +1902,10 @@ ${questionSeparator}
 Question 3: [Question text]
 `;
 
-    console.log("[Background] Sending prompt to OpenAI for tweet generation:", prompt.substring(0, 500) + (prompt.length > 500 ? "... (truncated)" : ""));
+    console.log(
+      "[Background] Sending prompt to OpenAI for tweet generation:",
+      prompt.substring(0, 500) + (prompt.length > 500 ? "... (truncated)" : "")
+    );
     try {
       const response = await callOpenAI(
         userSettings.apiKey,
@@ -1759,53 +2002,72 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-async function loadDataFromStorage() { 
+async function loadDataFromStorage() {
   console.log(
     "[Background] loadDataFromStorage called. userSettings BEFORE sync.get (should be defaults):",
     JSON.parse(JSON.stringify(userSettings))
   );
-  
+
   const localGetPromise = new Promise((resolve, reject) => {
-    chrome.storage.local.get(["userWritingSamples", "userReplies", "userLikedTopicsRaw"], (localData) => {
-      if (chrome.runtime.lastError) {
-        console.error("[Background] Error loading local data:", chrome.runtime.lastError);
-        return reject(chrome.runtime.lastError);
+    chrome.storage.local.get(
+      ["userWritingSamples", "userReplies", "userLikedTopicsRaw"],
+      (localData) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "[Background] Error loading local data:",
+            chrome.runtime.lastError
+          );
+          return reject(chrome.runtime.lastError);
+        }
+        console.log(
+          "[Background] Loading user profile data from local storage:",
+          localData
+        );
+
+        if (localData.userWritingSamples) {
+          userWritingSamples = localData.userWritingSamples;
+          console.log(
+            `[Background] Loaded ${userWritingSamples.length} posts from storage.`
+          );
+        } else {
+          console.log("[Background] No posts found in storage. Using defaults.");
+          userWritingSamples = [];
+        }
+
+        if (localData.userReplies) {
+          userReplies = localData.userReplies;
+          console.log(`[Background] Loaded ${userReplies.length} replies from storage.`);
+        } else {
+          console.log("[Background] No replies found in storage. Using defaults.");
+          userReplies = [];
+        }
+
+        if (localData.userLikedTopicsRaw) {
+          userLikedTopicsRaw = localData.userLikedTopicsRaw;
+          console.log(
+            `[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`
+          );
+        } else {
+          console.log("[Background] No liked posts found in storage. Using defaults.");
+          userLikedTopicsRaw = [];
+        }
+        resolve();
       }
-      console.log("[Background] Loading user profile data from local storage:", localData);
-      
-      if (localData.userWritingSamples) {
-        userWritingSamples = localData.userWritingSamples;
-        console.log(`[Background] Loaded ${userWritingSamples.length} posts from storage.`);
-      } else {
-        console.log("[Background] No posts found in storage. Using defaults.");
-        userWritingSamples = [];
-      }
-      
-      if (localData.userReplies) {
-        userReplies = localData.userReplies;
-        console.log(`[Background] Loaded ${userReplies.length} replies from storage.`);
-      } else {
-        console.log("[Background] No replies found in storage. Using defaults.");
-        userReplies = [];
-      }
-      
-      if (localData.userLikedTopicsRaw) {
-        userLikedTopicsRaw = localData.userLikedTopicsRaw;
-        console.log(`[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`);
-      } else {
-        console.log("[Background] No liked posts found in storage. Using defaults.");
-        userLikedTopicsRaw = [];
-      }
-      resolve();
-    });
+    );
   });
-  
+
   const syncGetPromise = new Promise((resolve, reject) => {
     chrome.storage.sync.get(
       ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey", "settings"],
       (result) => {
-        console.log("[Background] loadDataFromStorage - Data retrieved from sync:", result);
-        console.log("[Background] loadDataFromStorage - result.useOwnKey from sync before decision:", result.useOwnKey);
+        console.log(
+          "[Background] loadDataFromStorage - Data retrieved from sync:",
+          result
+        );
+        console.log(
+          "[Background] loadDataFromStorage - result.useOwnKey from sync before decision:",
+          result.useOwnKey
+        );
         if (chrome.runtime.lastError) {
           console.error(
             "[Background] Error loading sync data from storage:",
@@ -1818,7 +2080,8 @@ async function loadDataFromStorage() {
           userSettings.apiKey = result.apiKey;
           globalThis.apiKeyInitialized = true;
         } else {
-          globalThis.apiKeyInitialized = userSettings.apiKey !== null && userSettings.apiKey !== '';
+          globalThis.apiKeyInitialized =
+            userSettings.apiKey !== null && userSettings.apiKey !== "";
         }
         if (result.profileBio !== undefined) {
           userSettings.profileBio = result.profileBio;
@@ -1829,26 +2092,42 @@ async function loadDataFromStorage() {
         if (result.tone !== undefined) {
           userSettings.tone = result.tone;
         }
-        
-        if (result.useOwnKey === undefined) { 
-          console.log("[Background] loadDataFromStorage - useOwnKey is UNDEFINED in sync. Setting to default (true) and attempting to persist.");
-          userSettings.useOwnKey = true; 
+
+        if (result.useOwnKey === undefined) {
+          console.log(
+            "[Background] loadDataFromStorage - useOwnKey is UNDEFINED in sync. Setting to default (true) and attempting to persist."
+          );
+          userSettings.useOwnKey = true;
           chrome.storage.sync.set({ useOwnKey: true }, () => {
             if (chrome.runtime.lastError) {
-              console.error("[Background] loadDataFromStorage - Error trying to persist default useOwnKey:", chrome.runtime.lastError.message);
+              console.error(
+                "[Background] loadDataFromStorage - Error trying to persist default useOwnKey:",
+                chrome.runtime.lastError.message
+              );
             } else {
-              console.log("[Background] loadDataFromStorage - Successfully persisted default useOwnKey: true to sync storage.");
+              console.log(
+                "[Background] loadDataFromStorage - Successfully persisted default useOwnKey: true to sync storage."
+              );
             }
             // Resolve even if persisting default fails, as primary load is done.
             // However, the outer promise depends on this nested async operation to be fully complete.
             // This specific resolve might be tricky. For simplicity, we assume `set` is fast enough or errors are just logged.
           });
-        } else { 
-          console.log("[Background] loadDataFromStorage - useOwnKey has a value in sync storage. Applying it:", result.useOwnKey);
+        } else {
+          console.log(
+            "[Background] loadDataFromStorage - useOwnKey has a value in sync storage. Applying it:",
+            result.useOwnKey
+          );
           userSettings.useOwnKey = result.useOwnKey;
-          console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+          console.log(
+            "[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:",
+            userSettings.useOwnKey
+          );
         }
-        console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+        console.log(
+          "[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:",
+          userSettings.useOwnKey
+        );
 
         if (result.settings && typeof result.settings === "object") {
           console.log(
@@ -1859,28 +2138,53 @@ async function loadDataFromStorage() {
           for (const key in result.settings) {
             if (result.settings.hasOwnProperty(key)) {
               // Do not overwrite apiKey, profileBio etc. if result.settings has them as undefined but they were set from top-level
-              if (key === 'apiKey' && result.settings.apiKey === undefined && result.apiKey !== undefined) continue;
-              if (key === 'profileBio' && result.settings.profileBio === undefined && result.profileBio !== undefined) continue;
-              if (key === 'hashtags' && result.settings.hashtags === undefined && result.hashtags !== undefined) continue;
+              if (
+                key === "apiKey" &&
+                result.settings.apiKey === undefined &&
+                result.apiKey !== undefined
+              )
+                continue;
+              if (
+                key === "profileBio" &&
+                result.settings.profileBio === undefined &&
+                result.profileBio !== undefined
+              )
+                continue;
+              if (
+                key === "hashtags" &&
+                result.settings.hashtags === undefined &&
+                result.hashtags !== undefined
+              )
+                continue;
               // For 'tone' from settings, it's 'defaultTone', map to userSettings.tone
-              if (key === 'defaultTone' && result.settings.defaultTone !== undefined) {
+              if (key === "defaultTone" && result.settings.defaultTone !== undefined) {
                 userSettings.tone = result.settings.defaultTone;
-              } else if (key === 'tone' && result.settings.tone !== undefined) { // if it's just 'tone'
+              } else if (key === "tone" && result.settings.tone !== undefined) {
+                // if it's just 'tone'
                 userSettings.tone = result.settings.tone;
               }
-              if (key === 'useOwnKey' && result.settings.useOwnKey === undefined && result.useOwnKey !== undefined) continue;
-              
+              if (
+                key === "useOwnKey" &&
+                result.settings.useOwnKey === undefined &&
+                result.useOwnKey !== undefined
+              )
+                continue;
+
               // For other keys, or if the top-level result.key was undefined, take from result.settings
-              if (['apiKey', 'profileBio', 'hashtags', 'tone', 'useOwnKey'].includes(key)) {
+              if (
+                ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey"].includes(key)
+              ) {
                 if (result[key] === undefined && result.settings[key] !== undefined) {
-                  if (key === 'defaultTone') { // map 'defaultTone' from settings object to 'tone'
+                  if (key === "defaultTone") {
+                    // map 'defaultTone' from settings object to 'tone'
                     userSettings.tone = result.settings.defaultTone;
                   } else {
                     userSettings[key] = result.settings[key];
                   }
                 }
-              } else if (result.settings[key] !== undefined) { // For any other non-explicitly handled keys
-                 userSettings[key] = result.settings[key];
+              } else if (result.settings[key] !== undefined) {
+                // For any other non-explicitly handled keys
+                userSettings[key] = result.settings[key];
               }
             }
           }
@@ -1896,15 +2200,20 @@ async function loadDataFromStorage() {
       }
     );
   });
-  
+
   // After both promises have resolved, you can be sure data loading is complete.
   return Promise.all([localGetPromise, syncGetPromise])
     .then(() => {
-      console.log("[Background] loadDataFromStorage: All data loading attempts complete.");
+      console.log(
+        "[Background] loadDataFromStorage: All data loading attempts complete."
+      );
       // The function implicitly returns undefined if resolved, which is fine for await.
     })
-    .catch(error => {
-      console.error("[Background] loadDataFromStorage: A critical error occurred during data loading:", error);
+    .catch((error) => {
+      console.error(
+        "[Background] loadDataFromStorage: A critical error occurred during data loading:",
+        error
+      );
       // Propagate the error so callers can handle it if necessary
       throw error;
     });
@@ -1916,9 +2225,9 @@ async function loadDataFromStorage() {
  */
 async function getUserProfileData() {
   return {
-    posts: userWritingSamples || [],        // Original posts
-    replies: userReplies || [],            // Replies to other tweets
-    likedPosts: userLikedTopicsRaw || [],   // Liked content
+    posts: userWritingSamples || [], // Original posts
+    replies: userReplies || [], // Replies to other tweets
+    likedPosts: userLikedTopicsRaw || [], // Liked content
     // Add any other profile data here
   };
 }
