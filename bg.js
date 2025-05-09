@@ -1,41 +1,42 @@
 import { callOpenAI, fetchTrendingTopics } from "./lib/api.js";
 
 // Web search function using OpenAI's completions API with system instructions for web search
-async function searchWeb(query, userLocation = null, contextSize = 'medium') {
+async function searchWeb(query, userLocation = null, contextSize = "medium") {
   try {
-    console.log('[Background] Performing web search for query:', query);
-    
+    console.log("[Background] Performing web search for query:", query);
+
     if (!userSettings.apiKey) {
-      throw new Error('API key is not set for web search');
+      throw new Error("API key is not set for web search");
     }
-    
+
     // Instead of trying to use the web_search_preview tool directly,
     // we'll use a regular OpenAI call with instructions to summarize the latest information
-    const systemMessage = 'You are a helpful assistant with access to the latest information. ' +
-                        'Provide accurate, up-to-date information about the query, focusing on ' +
-                        'developments from the last 24-48 hours when relevant.';
-    
+    const systemMessage =
+      "You are a helpful assistant with access to the latest information. " +
+      "Provide accurate, up-to-date information about the query, focusing on " +
+      "developments from the last 24-48 hours when relevant.";
+
     const response = await callOpenAI(
-      userSettings.apiKey, 
+      userSettings.apiKey,
       query,
-      'informative', // tone
+      "informative", // tone
       null, // user instruction
       null, // profile bio
       [], // writing samples
       [], // liked tweets
       systemMessage // custom system message
     );
-    
-    console.log('[Background] Web search results:', response);
-    
+
+    console.log("[Background] Web search results:", response);
+
     // Since we're using the existing callOpenAI function, the response is just text
     return {
       text: response,
       annotations: [],
-      source: 'openai'
+      source: "openai",
     };
   } catch (error) {
-    console.error('[Background] Error in web search:', error);
+    console.error("[Background] Error in web search:", error);
     throw error;
   }
 }
@@ -254,7 +255,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.log("[Background] API key not loaded yet, attempting to load now...");
         // Try loading API key again
         try {
-          const result = await new Promise(resolve => {
+          const result = await new Promise((resolve) => {
             chrome.storage.sync.get(["apiKey"], resolve);
           });
           if (result.apiKey) {
@@ -272,7 +273,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
       }
-      
+
       if (!userSettings.apiKey) {
         // If we still don't have an API key after attempting to load it
         sendResponse({ error: "API key not found" });
@@ -550,56 +551,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // This handler is async due to fetchTrendingTopics, but its own logic doesn't await the API key.
       // The return true below will keep the channel open for fetchTrendingTopics's promise.
     } else if (message.type === "FETCH_REAL_TRENDING_TOPICS") {
-        console.log('[Background] Received request for real trending topics');
-        
-        // This will use web search to get actual trending topics
-        (async () => {
-          try {
-            // Use web search to get current trending topics
-            const query = 'What are the current trending tech topics on Twitter/X? List only 5-7 specific trending topics, separated by commas.';
-            
-            const searchResults = await searchWeb(query);
-            if (searchResults && searchResults.text) {
-              // Process the results to extract topics
-              // First, check if the response already looks like a comma-separated list
-              let topics = [];
-              
-              if (searchResults.text.includes(',')) {
-                // If it contains commas, treat it as a comma-separated list
-                topics = searchResults.text
-                  .split(',')
-                  .map(topic => topic.trim())
-                  .filter(topic => topic.length > 0 && topic.length < 50); // Avoid extremely long topics
-              } else {
-                // Otherwise, try to split by newlines or other common separators
-                topics = searchResults.text
-                  .split(/[\n\r•\-\*]/) // Split by newlines, bullets, hyphens, etc.
-                  .map(topic => topic.trim())
-                  .filter(topic => topic.length > 0 && topic.length < 50);
-              }
-              
-              // Check if we have at least one valid topic
-              if (topics.length > 0) {
-                console.log('[Background] Retrieved trending topics from web search:', topics);
-                sendResponse({ trending: topics.slice(0, 7), source: 'web' }); // Return topics and source
-              } else {
-                // Don't show fallback data - just return empty result
-                console.log('[Background] No valid topics extracted from search');
-                sendResponse({ trending: [] });
-              }
+      console.log("[Background] Received request for real trending topics");
+
+      // This will use web search to get actual trending topics
+      (async () => {
+        try {
+          // Use web search to get current trending topics
+          const query =
+            "What are the current trending tech topics on Twitter/X? List only 5-7 specific trending topics, separated by commas.";
+
+          const searchResults = await searchWeb(query);
+          if (searchResults && searchResults.text) {
+            // Process the results to extract topics
+            // First, check if the response already looks like a comma-separated list
+            let topics = [];
+
+            if (searchResults.text.includes(",")) {
+              // If it contains commas, treat it as a comma-separated list
+              topics = searchResults.text
+                .split(",")
+                .map((topic) => topic.trim())
+                .filter((topic) => topic.length > 0 && topic.length < 50); // Avoid extremely long topics
+            } else {
+              // Otherwise, try to split by newlines or other common separators
+              topics = searchResults.text
+                .split(/[\n\r•\-\*]/) // Split by newlines, bullets, hyphens, etc.
+                .map((topic) => topic.trim())
+                .filter((topic) => topic.length > 0 && topic.length < 50);
+            }
+
+            // Check if we have at least one valid topic
+            if (topics.length > 0) {
+              console.log(
+                "[Background] Retrieved trending topics from web search:",
+                topics
+              );
+              sendResponse({ trending: topics.slice(0, 7), source: "web" }); // Return topics and source
             } else {
               // Don't show fallback data - just return empty result
-              console.log('[Background] Search failed to return valid text');
+              console.log("[Background] No valid topics extracted from search");
               sendResponse({ trending: [] });
             }
-          } catch (error) {
-            console.error('[Background] Error fetching real trending topics:', error);
+          } else {
             // Don't show fallback data - just return empty result
+            console.log("[Background] Search failed to return valid text");
             sendResponse({ trending: [] });
           }
-        })();
-        
-        return true; // Async response
+        } catch (error) {
+          console.error("[Background] Error fetching real trending topics:", error);
+          // Don't show fallback data - just return empty result
+          sendResponse({ trending: [] });
+        }
+      })();
+
+      return true; // Async response
     } else {
       console.warn("[Background] Unhandled message type in IIFE:", message.type);
       // sendResponse({ error: 'Unknown message type handled in IIFE' }); // Optional: send error for unhandled types
@@ -856,37 +861,38 @@ async function transcribeAudioWithOpenAI(audioBlob, apiKey) {
 // Process the AI response to extract multiple reply suggestions and contextual questions
 function processAIResponse(response, replySeparator, questionSeparator) {
   if (!response) {
-    return { 
-      replies: ['Sorry, I couldn\'t generate a reply.'],
+    return {
+      replies: ["Sorry, I couldn't generate a reply."],
       questions: [
         "What points would you like to make about this tweet?",
         "How do you personally feel about the content of this tweet?",
-        "Is there a specific aspect of the tweet you want to respond to?"
-      ]
+        "Is there a specific aspect of the tweet you want to respond to?",
+      ],
     };
   }
-  
+
   // Initialize default result
   const result = {
     replies: [],
     questions: [
       "What points would you like to make about this tweet?",
       "How do you personally feel about the content of this tweet?",
-      "Is there a specific aspect of the tweet you want to respond to?"
-    ]
+      "Is there a specific aspect of the tweet you want to respond to?",
+    ],
   };
 
   // Extract contextual questions if they exist
   if (response.includes(questionSeparator)) {
-    console.log('[Background] Found question separator in response');
+    console.log("[Background] Found question separator in response");
     const [repliesSection, questionsSection] = response.split(questionSeparator);
-    
+
     // Process replies from the first section
     if (repliesSection && repliesSection.includes(replySeparator)) {
-      const replies = repliesSection.split(replySeparator)
-        .map(reply => reply.trim())
-        .filter(reply => reply.length > 0);
-      
+      const replies = repliesSection
+        .split(replySeparator)
+        .map((reply) => reply.trim())
+        .filter((reply) => reply.length > 0);
+
       if (replies.length > 0) {
         result.replies = replies.slice(0, 5);
       }
@@ -894,21 +900,22 @@ function processAIResponse(response, replySeparator, questionSeparator) {
       // If no separator but we have content, use it as a single reply
       result.replies = [repliesSection.trim()];
     }
-    
+
     // Process questions from the second section
     if (questionsSection && questionsSection.trim()) {
       // Handle different formats of questions in the response
       let questions = [];
-      
+
       // Check if questions are prefixed with "Question X:" format
-      if (questionsSection.includes('Question 1:') || 
-          questionsSection.includes('Question 2:') || 
-          questionsSection.includes('Question 3:')) {
-        
-        // Extract questions with prefixes 
+      if (
+        questionsSection.includes("Question 1:") ||
+        questionsSection.includes("Question 2:") ||
+        questionsSection.includes("Question 3:")
+      ) {
+        // Extract questions with prefixes
         const questionPattern = /Question \d+:\s*([^\n]+)/g;
         const matches = questionsSection.matchAll(questionPattern);
-        
+
         for (const match of matches) {
           if (match[1] && match[1].trim()) {
             questions.push(match[1].trim());
@@ -916,13 +923,14 @@ function processAIResponse(response, replySeparator, questionSeparator) {
         }
       } else {
         // Standard processing - split by line breaks
-        questions = questionsSection.split('\n')
-          .map(q => q.trim())
-          .filter(q => q.length > 0 && q.length < 200); // Avoid extremely long lines
+        questions = questionsSection
+          .split("\n")
+          .map((q) => q.trim())
+          .filter((q) => q.length > 0 && q.length < 200); // Avoid extremely long lines
       }
-      
-      console.log('[Background] Extracted questions:', questions);
-      
+
+      console.log("[Background] Extracted questions:", questions);
+
       if (questions.length > 0) {
         result.questions = questions.slice(0, 3);
       }
@@ -930,10 +938,11 @@ function processAIResponse(response, replySeparator, questionSeparator) {
   } else {
     // No question separator, just process replies
     if (response.includes(replySeparator)) {
-      const replies = response.split(replySeparator)
-        .map(reply => reply.trim())
-        .filter(reply => reply.length > 0);
-      
+      const replies = response
+        .split(replySeparator)
+        .map((reply) => reply.trim())
+        .filter((reply) => reply.length > 0);
+
       if (replies.length > 0) {
         result.replies = replies.slice(0, 5);
       }
@@ -942,16 +951,16 @@ function processAIResponse(response, replySeparator, questionSeparator) {
       result.replies = [response.trim()];
     }
   }
-  
+
   // Ensure we have at least one question
   if (!result.questions || result.questions.length === 0) {
     result.questions = [
       "What points would you like to make about this?",
       "What perspective would you like to share on this topic?",
-      "How might you contribute to this conversation?"
+      "How might you contribute to this conversation?",
     ];
   }
-  
+
   return result;
 }
 
@@ -1081,7 +1090,7 @@ function getFallbackTrendingTopics() {
     "Startups tackling climate tech",
     "Edge computing breakthroughs",
     "AI regulations in Europe",
-    "Quantum computing milestones"
+    "Quantum computing milestones",
   ];
 }
 
@@ -1093,70 +1102,64 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     // 1. Extract topics from user bio
     const bioTopics = await extractTopicsFromBio(userSettings.profileBio);
     console.log("[Background] Topics from bio:", bioTopics);
+    console.log("[DEBUG] Extracted Bio Topics:", JSON.stringify(bioTopics, null, 2)); // Added log
 
     // 2. Analyze liked posts for topics
+    let userLikedTopicsRaw = [];
+    try {
+      const data = await loadDataFromStorage("likedTweets");
+      userLikedTopicsRaw = data.likedTweets || [];
+    } catch (e) {
+      console.warn("[Background] Could not load liked tweets for topic analysis:", e);
+    }
     const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw);
     console.log("[Background] Topics from liked posts:", likedPostsTopics);
+    console.log("[DEBUG] Extracted Liked Posts Topics:", JSON.stringify(likedPostsTopics, null, 2)); // Added log
 
-    // 3. Combine topics and select up to 3 most relevant
-    const allTopics = [...new Set([...bioTopics, ...likedPostsTopics])];
-    const selectedTopics = allTopics.slice(0, 3);
-    console.log("[Background] Selected topics for search:", selectedTopics);
+    // Combine topics and remove duplicates
+    const allTopics = [
+      ...new Set([...(bioTopics || []), ...(likedPostsTopics || [])]),
+    ];
+    console.log("[Background] Combined unique topics:", allTopics);
+    console.log("[DEBUG] Combined Unique Topics for Search/Prompt:", JSON.stringify(allTopics, null, 2)); // Added log
 
-    // 4. If we have topics, search for news; otherwise, use trending topics
-    let newsContext = '';
-    let newsSource = '';
+    // 3. Perform web search based on combined topics or default if none
+    let searchQuery = allTopics.length > 0 ? allTopics.join(", ") : "current trending topics in tech and AI";
+    if (userInstruction && userInstruction.toLowerCase().includes("search for:")) {
+        searchQuery = userInstruction.split("search for:")[1].trim();
+        console.log(`[Background] Overriding search query based on user instruction: "${searchQuery}"`);
+    }
+
+    console.log("[Background] Performing web search with query:", searchQuery);
+    const searchResults = await searchWeb(searchQuery);
+    console.log("[DEBUG] Raw Web Search Results:", JSON.stringify(searchResults, null, 2)); // Added log
+    if (searchResults && searchResults.text) {
+      console.log("[DEBUG] Web Search Results Text:", searchResults.text.substring(0, 500) + (searchResults.text.length > 500 ? "... (truncated)" : "")); // Added log for the text content
+    }
+
+    // Prepare context for OpenAI
+    let newsContext = "";
+    let newsSource = "";
     let trendingTopics = [];
 
-    if (selectedTopics.length > 0) {
-      try {
-        // Search for news about the selected topics
-        const searchQuery = `Summarize the latest news (from the last 24-48 hours) about ${selectedTopics.join(', ')}. Provide key points and developments in 3-5 paragraphs.`;
+    if (searchResults && searchResults.text && searchResults.text.length > 50) {
+      newsContext = searchResults.text;
+      newsSource = "topics";
+      console.log("[Background] News search results acquired");
 
-        console.log('[Background] Searching for news about topics:', selectedTopics);
-        const searchResults = await searchWeb(searchQuery);
-
-        if (searchResults && searchResults.text && searchResults.text.length > 50) {
-          newsContext = searchResults.text;
-          newsSource = 'topics';
-          console.log('[Background] News search results acquired');
-
-          // Also get trending topics as supplementary context
-          try {
-            trendingTopics = await fetchTrendingTopics();
-          } catch (trendingError) {
-            console.error('[Background] Error fetching trending topics:', trendingError);
-            // Use default trending topics if fetch fails
-            trendingTopics = getFallbackTrendingTopics();
-          }
-        } else {
-          throw new Error('Insufficient news results');
-        }
-      } catch (error) {
-        console.error('[Background] Error in news search:', error);
-        // Fall back to trending topics
-        try {
-          trendingTopics = await fetchTrendingTopics();
-        } catch (trendingError) {
-          console.error('[Background] Error fetching trending topics:', trendingError);
-          // Use default trending topics if fetch fails
-          trendingTopics = getFallbackTrendingTopics();
-        }
-        newsSource = 'trending';
-      }
-    } else {
-      // No user topics, use trending topics
+      // Also get trending topics as supplementary context
       try {
         trendingTopics = await fetchTrendingTopics();
       } catch (trendingError) {
-        console.error('[Background] Error fetching trending topics:', trendingError);
+        console.error("[Background] Error fetching trending topics:", trendingError);
         // Use default trending topics if fetch fails
         trendingTopics = getFallbackTrendingTopics();
       }
-      newsSource = 'trending';
+    } else {
+      throw new Error("Insufficient news results");
     }
 
-    // 5. Create a context for tweets based on either news or trending topics
+    // 4. Create a context for tweets based on either news or trending topics
     if (newsSource === "trending" && trendingTopics.length > 0) {
       newsContext = `Current trending topics: ${trendingTopics.join(", ")}.`;
     }
@@ -1167,7 +1170,7 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
         "Focus on general topics like technology, business, entertainment, or personal development.";
     }
 
-    // 6. Generate tweet ideas using the context
+    // 5. Generate tweet ideas using the context
     const postSeparator = "###POST_SEPARATOR###";
     const questionSeparator = "###QUESTIONS_SEPARATOR###";
 
@@ -1218,24 +1221,24 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
       userWritingSamples
     );
 
-    // 7. Process the response to extract tweets and questions
+    // 6. Process the response to extract tweets and questions
     const processedResponse = processAIResponse(
       response,
       postSeparator,
       questionSeparator
     );
 
-    // 8. Ensure no hyphens in the final tweets
+    // 7. Ensure no hyphens in the final tweets
     const cleanedTweets = processedResponse.replies.map((tweet) => removeHyphens(tweet));
 
-    // 9. Format the response
+    // 8. Format the response
     const result = {
       ideas: cleanedTweets,
       // Only include trending topics if they're from a real source
-      trending: newsSource === 'topics' || newsSource === 'web' ? trendingTopics : [],
+      trending: newsSource === "topics" || newsSource === "web" ? trendingTopics : [],
       // Only include newsSource if it's a real source
-      newsSource: newsSource === 'topics' || newsSource === 'web' ? newsSource : '',
-      guidingQuestions: processedResponse.questions
+      newsSource: newsSource === "topics" || newsSource === "web" ? newsSource : "",
+      guidingQuestions: processedResponse.questions,
     };
 
     console.log("[Background] Generated tweets with context:", result);

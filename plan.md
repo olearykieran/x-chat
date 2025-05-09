@@ -1,110 +1,80 @@
-# X-Chat Compose Tab Enhancement Plan
+# Comprehensive Plan: Enhancing Compose Tab Functionality
 
-This document outlines the plan to upgrade the "Compose" tab in the X-Chat Chrome extension. The goal is to enhance the tweet generation capabilities by incorporating real-time news and user interests, while maintaining the existing styling and core functionality.
+**Overall Goal:** Refine the "Compose" tab's tweet and question generation to significantly improve personalization (voice, style), content quality (search, topics), question utility, and fix data ingestion issues. All generated tweets must be free of hashtags and hyphens.
 
-## I. Backend Enhancements (`bg.js` and API Integration)
+## I. Voice & Writing Style Personalization
 
-1. **Implement Web Search for Latest News:**
-   * **Action:** Add functionality to query relevant news based on topics in the user's bio.
-   * **Goal:** Retrieve up-to-date news articles and information to generate topical, relevant tweets.
-   * **Implementation:**
-     * Integrate OpenAI's web search tool to fetch current news
-     * Extract topics of interest from user's bio
-     * Use these topics as search parameters to find relevant news
+**Objective:** Make generated tweets closely emulate the user's unique writing style, tone, vocabulary, and sentence structure.
 
-2. **Utilize User's Liked Posts for Topic Analysis:**
-   * **Action:** Enhance processing of user's liked posts data.
-   * **Goal:** Identify patterns and recurring topics in the content the user engages with.
-   * **Implementation:**
-     * Process the existing `userLikedTopicsRaw` data
-     * Extract key topics, entities, and themes
-     * Use these insights to generate tweets on topics the user has shown interest in
+1.  **Fix User Liked Data Ingestion:**
 
-3. **Enhance AI Prompt for Tweet Generation in `bg.js`:**
-   * **Action:** Update the prompt sent to OpenAI API for tweet generation.
-   * **Goal:** Generate 5 distinct tweet suggestions incorporating both news and user interests.
-   * **Implementation:**
-     * Modify prompt to explicitly request 5 distinct tweet ideas
-     * Include news context from web search results
-     * Incorporate topics from user's liked content
-     * Use a delimiter for easy parsing (e.g., `###POST_SEPARATOR###`)
-     * Ensure tweets match user's writing style using `profileBio` and any available `userWritingSamples`
+    - **Task:** Diagnose and resolve the `TypeError: Cannot read properties of undefined (reading 'likedTweets')` occurring in `generateTweetsWithNews`.
+    - **Details:** Ensure that `userLikedTopicsRaw` (or a similar variable representing user's own posts/replies if 'likedTweets' refers to tweets they liked by others) is correctly populated from storage within `generateTweetsWithNews` or that the correct data source is accessed.
+    - **Verification:** Confirm via logging that user's posts/replies data is successfully loaded and available for topic/style analysis.
 
-4. **Add Contextual Guiding Questions Generator:**
-   * **Action:** Create functionality to generate 3 thought-provoking questions based on trending topics.
-   * **Goal:** Help users formulate their own tweets with contextual prompts.
-   * **Implementation:**
-     * Use trending topics data to generate relevant questions
-     * Add a question separator (e.g., `###QUESTIONS_SEPARATOR###`) to the API response
-     * Parse and extract both tweet suggestions and questions
+2.  **Enhance AI Prompt for Voice Matching in `generateTweetsWithNews`:**
+    - **Task:** Modify the main AI prompt sent to `callOpenAI`.
+    - **Details:**
+      - Explicitly instruct the AI to prioritize and meticulously match the user's writing style, tone, vocabulary, sentence structure, and overall voice.
+      - The prompt must state that `userSettings.profileBio` AND the collection of the user's own past tweets/replies (once correctly ingested, e.g., `userWritingSamples` or `userLikedTopicsRaw` if it contains their own content) are the **primary references** for the desired output style.
+      - This instruction should be as strong and clear as any similar voice-matching instructions used in other parts of the application (e.g., reply generation).
+    - **Verification:** Generated tweets should qualitatively sound much more like the user and less generic/robotic.
 
-## II. Frontend Updates (`ComposeTab.js` and Related Components)
+## II. Output Formatting: No Hashtags or Hyphens
 
-1. **Display 5 AI-Generated Tweets:**
-   * **Action:** Ensure the UI can display all 5 generated tweet suggestions.
-   * **Goal:** Present multiple diverse options to the user without changing current styling.
-   * **Implementation:**
-     * Maintain existing UI components and styling
-     * Update the rendering logic to handle 5 suggestions
-     * Ensure each suggestion retains "Use Tweet" and "Copy" buttons
+**Objective:** Ensure all generated tweets are clean and free of unwanted hashtags and hyphens.
 
-2. **Implement "Brainstorm" Section with Contextual Questions:**
-   * **Action:** Add a new section below tweet suggestions.
-   * **Goal:** Display 3 contextual questions to help users formulate their own tweets.
-   * **Implementation:**
-     * Create a UI section similar to the one in the Reply tab
-     * Display AI-generated questions related to trending topics
-     * Maintain consistent styling with the existing dark theme
+1.  **Explicit No-Hashtag Instruction in Prompt:**
 
-3. **Source Attribution for News-Based Tweets:**
-   * **Action:** Add subtle attribution for tweets generated from news sources.
-   * **Goal:** Maintain transparency about content origins while keeping UI clean.
-   * **Implementation:**
-     * Add optional small attribution text or icon
-     * Ensure it doesn't disrupt existing UI/UX
+    - **Task:** Update the AI prompt in `generateTweetsWithNews`.
+    - **Details:** Remove any existing instruction that might encourage hashtags. Add a new, unequivocal instruction: `"DO NOT use any hashtags in the generated tweets. Tweets must be completely free of hashtags."`
+    - **Verification:** Generated tweets must not contain any `#` symbols.
 
-## III. State Management Updates
+2.  **Post-Processing to Remove Hyphens:**
+    - **Task:** Implement or refine a post-processing step after AI generation but before displaying tweets.
+    - **Details:** The `removeHyphens` function (mentioned in logs as `cleanedTweets = processedResponse.replies.map((tweet) => removeHyphens(tweet));`) should be robustly applied to all generated tweet suggestions to remove all instances of hyphens (`-`). This includes hyphens used for emphasis, lists, or compound words if the goal is complete removal.
+    - **Verification:** Generated tweets must not contain any `-` symbols.
 
-1. **Enhance Data Processing for Tweet Generation:**
-   * **Action:** Update state management to handle new data sources and formats.
-   * **Goal:** Seamlessly integrate web search results and topic analysis.
-   * **Implementation:**
-     * Update state handlers to process web search responses
-     * Store and manage user interest data efficiently
-     * Add state for contextual questions
+## III. Improving Guiding Questions
 
-2. **Optimization for Performance:**
-   * **Action:** Ensure efficient data handling for web search results.
-   * **Goal:** Maintain snappy performance despite additional data processing.
-   * **Implementation:**
-     * Implement caching for search results where appropriate
-     * Optimize data transformation/extraction functions
-     * Ensure asynchronous operations don't block UI
+**Objective:** Make the 3 guiding questions significantly more insightful, specific, and genuinely helpful for brainstorming unique post ideas.
 
-## IV. Testing and Quality Assurance
+1.  **Revamp AI Prompt for Question Generation:**
+    - **Task:** Modify the section of the AI prompt in `generateTweetsWithNews` that requests guiding questions.
+    - **Details:**
+      - Instruct the AI to generate questions that are deeply contextualized by the `newsContext` and the `combinedTopics` (user's interests).
+      - Demand questions that are specific, non-obvious, and designed to spark deeper thought or unique angles, rather than generic prompts.
+      - Provide new, better examples of the _type_ of insightful questions desired, focusing on stimulating creativity (e.g., "How might [specific aspect of news] challenge a common assumption in [user_topic]?" or "What's an overlooked connection between [user_interest_A] and [recent_event_from_news]?").
+      - Emphasize avoiding generic templates like "What's your take on X?" unless X is highly specific and the question probes a unique angle.
+    - **Verification:** Generated questions should be noticeably more tailored, thought-provoking, and less generic.
 
-1. **Functionality Verification:**
-   * Confirm all 5 tweet suggestions are properly generated and displayed
-   * Verify tweets incorporate both news data and user interests
-   * Ensure guiding questions are relevant to trending topics
+## IV. Enhancing Web Search & Topic Discovery
 
-2. **Integration Testing:**
-   * Test the interaction between web search, topic analysis, and tweet generation
-   * Verify all components communicate properly
+**Objective:** Improve the relevance and quality of information used for news context by refining the web search and topic discovery process.
 
-3. **UI/UX Integrity:**
-   * Confirm no styling has been changed from the current implementation
-   * Verify that the new features integrate seamlessly with existing components
-   * Ensure responsive design is maintained
+1.  **Refine Web Search Prompt & Model (Consider `gpt-4.1-mini`):**
 
-4. **Performance Testing:**
-   * Measure response times for tweet generation with new data sources
-   * Verify memory usage remains efficient
-   * Test with various network conditions
+    - **Task:** Modify the `searchWeb` function or how it's called within `generateTweetsWithNews`.
+    - **Details:**
+      - The prompt used within `searchWeb` (which itself calls `callOpenAI`) needs to be optimized for retrieving concise, relevant summaries of current news or information related to the `searchQuery` (user's combined topics).
+      - It should specifically ask for **5 distinct, current trending topics/news items** related to the input query, ensuring diversity in the results.
+      - Evaluate using `gpt-4.1-mini` (or a similar capable and cost-effective model available via `callOpenAI`) specifically for the `searchWeb` task if it's expected to yield better summarization or factual retrieval for search-like queries compared to the default model used for creative generation. This involves passing the desired model name to `callOpenAI` from `searchWeb`.
+    - **Verification:** The `newsContext` logged should contain 5 distinct and relevant news items/topics, and its quality should be subjectively better.
 
-5. **No Regressions:**
-   * Verify existing tabs (Reply, Schedule) function correctly
-   * Ensure settings and configuration options work as expected
-   * Confirm API key management functions properly
+2.  **Ensure Correct `fetchTrendingTopics` Usage (if still applicable):**
+    - **Task:** Review how `fetchTrendingTopics` is integrated, especially in light of the `searchWeb` enhancement.
+    - **Details:** If `searchWeb` is now tasked with getting 5 diverse topics, the role of a separate `fetchTrendingTopics` might need to be re-evaluated or made supplementary. Ensure it doesn't lead to redundant or conflicting information. The logs showed `Trending topics request timed out`, which also needs to be addressed if this function remains critical.
+    - **Verification:** Topic discovery should be robust and provide a good foundation for tweet generation.
 
-By implementing this plan, the Compose tab will be significantly enhanced with personalized, up-to-date content generation capabilities while preserving the existing user experience and design.
+## V. Implementation & Verification Workflow
+
+1.  **Iterative Changes:** Implement changes section by section (e.g., I, then II, etc.).
+2.  **Logging:** Maintain and enhance logging (as previously implemented) to monitor the inputs and outputs of key functions (`extractTopicsFromBio`, `analyzeLikedPosts`, `searchWeb`, `generateTweetsWithNews`, `callOpenAI`).
+3.  **Testing:** After each significant change:
+    - Reload the extension.
+    - Trigger the Compose tab functionality multiple times with varied user bio/settings.
+    - Review console logs for expected data flow and values.
+    - Critically assess the quality of generated tweets (voice, style, no hashtags/hyphens) and guiding questions.
+    - Ensure other functionalities (e.g., Reply tab) remain unaffected.
+
+By systematically addressing these areas, the Compose tab should provide a significantly more valuable and personalized experience.
