@@ -23,8 +23,25 @@ function extractTweetData(tweetArticle) {
 
   const tweetText = textEl ? textEl.innerText : '';
   const tweetAuthorName = userEl ? userEl.innerText.split('\n').find(s => !s.startsWith('@')) : '';
-  const tweetAuthorHandle = userEl ? userEl.innerText.split('\n').find(s => s.startsWith('@')) : '';
+  
+  // Enhanced author handle extraction
+  let tweetAuthorHandle = '';
+  if (userEl) {
+    const handleText = userEl.innerText.split('\n').find(s => s.startsWith('@'));
+    if (handleText) {
+      tweetAuthorHandle = handleText.trim();
+    } else {
+      // Fallback: try to extract from href attribute if text extraction fails
+      const userLink = userEl.getAttribute('href');
+      if (userLink && userLink.startsWith('/')) {
+        tweetAuthorHandle = '@' + userLink.substring(1).split('/')[0];
+      }
+    }
+  }
+  
   const tweetUrl = timeEl && timeEl.parentElement.href ? timeEl.parentElement.href : window.location.href;
+  
+  console.log('[XCO-Poster] Extracted tweet data:', { tweetText, tweetAuthorHandle, tweetUrl });
   
   return {
     tweetText,
@@ -40,15 +57,48 @@ function handleFocus(event) {
   if (tweetArticle) {
     focusedTweetData = extractTweetData(tweetArticle);
     if (focusedTweetData) {
-      chrome.runtime.sendMessage({ type: 'TWEET_FOCUSED', tweetData: focusedTweetData });
+      try {
+        chrome.runtime.sendMessage({ type: 'TWEET_FOCUSED', tweetData: focusedTweetData });
+      } catch (error) {
+        console.error('[XCO-Poster] Error sending message in handleFocus:', error);
+        // If the extension context is invalidated, we should remove the event listener
+        if (error.message && error.message.includes('Extension context invalidated')) {
+          document.removeEventListener('focusin', handleFocus, true);
+          console.log('[XCO-Poster] Extension context invalidated. Removing event listeners.');
+        }
+      }
     }
   }
 }
 
 document.addEventListener('focusin', handleFocus, true);
 
+// Helper function to safely send messages
+function safeSendMessage(message, callback) {
+  try {
+    chrome.runtime.sendMessage(message, callback);
+  } catch (error) {
+    console.error('[XCO-Poster] Error in safeSendMessage:', error);
+    // Handle the callback to prevent hanging promises
+    if (typeof callback === 'function') {
+      callback({ error: `Extension context error: ${error.message}` });
+    }
+  }
+}
+
 // Listen for messages from the popup or background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Check if the extension context is still valid
+  try {
+    // Test if we can access chrome.runtime.id (throws if invalidated)
+    if (!chrome.runtime.id) {
+      console.log('[XCO-Poster] Extension context appears to be invalidated');
+      return false;
+    }
+  } catch (error) {
+    console.error('[XCO-Poster] Error checking runtime context:', error);
+    return false;
+  }
   // GET_FOCUSED_TWEET Logic (from original listener)
   if (request.type === 'GET_FOCUSED_TWEET') {
     if (focusedTweetData) {
@@ -64,6 +114,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse(null);
     }
     return true; // Important for async sendResponse
+  }
+  
+  // NEW: Auto-select first post when reply tab is active
+  if (request.type === 'GET_CURRENT_TWEET') {
+    console.log('[XCO-Poster] GET_CURRENT_TWEET request received');
+    // If we already have a focused tweet, return it
+    if (focusedTweetData) {
+      console.log('[XCO-Poster] Returning already focused tweet data');
+      sendResponse({ tweetData: focusedTweetData });
+      return true;
+    }
+    
+    // Otherwise, find the first tweet in the timeline
+    const firstTweet = findFirstTweetInTimeline();
+    if (firstTweet) {
+      const tweetData = extractTweetData(firstTweet);
+      console.log('[XCO-Poster] Auto-selected first tweet:', tweetData);
+      // Cache the data so we don't need to re-extract
+      focusedTweetData = tweetData;
+      sendResponse({ tweetData: tweetData });
+    } else {
+      console.log('[XCO-Poster] No tweets found in timeline');
+      sendResponse({ tweetData: null });
+    }
+    return true;
   }
 
   // --- Side Panel Action Logic ---
@@ -246,15 +321,46 @@ function sendUserDataToBackground(dataType, data) {
   // Ensure data is structured as expected by bg.js
   const payload = (dataType === 'voice') ? { userPosts: data } : { likedTweets: data };
 
-  chrome.runtime.sendMessage({ type: actionType, data: payload }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error(`[XCO-Poster] Error sending ${dataType} data to background:`, chrome.runtime.lastError.message);
-    } else if (response && response.success) {
-      console.log(`[XCO-Poster] ${dataType} data successfully sent to background and processed.`);
-    } else {
-      console.error(`[XCO-Poster] Background script failed to process ${dataType} data:`, response ? response.error : 'No response');
-    }
-  });
+  try {
+    chrome.runtime.sendMessage({ type: actionType, data: payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(`[XCO-Poster] Error sending ${dataType} data to background:`, chrome.runtime.lastError.message);
+      } else if (response && response.success) {
+        console.log(`[XCO-Poster] ${dataType} data successfully sent to background and processed.`);
+      } else {
+        console.error(`[XCO-Poster] Background script failed to process ${dataType} data:`, response ? response.error : 'No response');
+      }
+    });
+  } catch (error) {
+    console.error(`[XCO-Poster] Error calling sendMessage for ${dataType} data:`, error);
+    // If context is invalidated, we cannot do much here as the content script will need to be reloaded
+  }
+}
+
+// Find the first tweet in the current timeline
+function findFirstTweetInTimeline() {
+  console.log('[XCO-Poster] Looking for first tweet in timeline');
+  
+  // Try different selectors to find timeline tweets
+  const timeline = document.querySelector('[aria-label="Timeline: Your Home Timeline"]') || 
+                  document.querySelector('[aria-label="Timeline"]') ||
+                  document.querySelector('[data-testid="primaryColumn"]');
+  
+  if (!timeline) {
+    console.log('[XCO-Poster] No timeline found');
+    return null;
+  }
+  
+  // Get all tweet articles in the timeline
+  const tweetArticles = timeline.querySelectorAll('article[data-testid="tweet"]');
+  console.log(`[XCO-Poster] Found ${tweetArticles.length} tweets in timeline`);
+  
+  // Return the first one if exists
+  if (tweetArticles.length > 0) {
+    return tweetArticles[0];
+  }
+  
+  return null;
 }
 
 console.log('[XCO-Poster ContentScript] Enhanced for side panel interaction. Ready to receive commands.');

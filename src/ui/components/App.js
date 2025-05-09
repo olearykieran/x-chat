@@ -297,16 +297,12 @@ function handleRegenerateReply(tweet) {
   // For now, let's assume we'll directly message the background/content script.
 
   // Send a message to the background script to generate a new reply.
-  // This message type 'GET_AI_REPLY' or similar needs to be handled in bg.js/contentScript.js
-  // to call OpenAI and then update the state with the new reply.
+  // Ensure we use the same message type as in our bg.js implementation
   chrome.runtime.sendMessage(
     {
-      type: 'GENERATE_AI_REPLY', // Or a more specific type like 'REGENERATE_AI_REPLY'
-      data: {
-        tweetText: tweet.tweetText,
-        tweetAuthorHandle: tweet.tweetAuthorHandle, // Pass author handle for context
-        // tweetId: tweet.id // If you have a unique ID for the tweet context
-      }
+      type: 'GENERATE_REPLY', // Using the same message type as expected by bg.js
+      tweetData: tweet, // Pass the entire tweet object as expected by bg.js
+      tone: getState().selectedTone // Pass the selected tone
     },
     (response) => {
       if (chrome.runtime.lastError) {

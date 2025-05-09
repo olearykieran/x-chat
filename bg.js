@@ -214,13 +214,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: `Error polishing transcript: ${error.message}` });
       }
     } else if (message.type === 'GENERATE_REPLY') {
-        const { tweetData, tone, userInstruction } = message; // Assuming userInstruction comes from message
-        // ... (prompt construction as in the diff) ...
-        let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${userSettings.profileBio || 'a generally helpful and friendly tech enthusiast'}".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${tweetData.tweetAuthorHandle}: "${tweetData.tweetText}"\n`;
-        // Add userWritingSamples and userInstruction to prompt if they exist...
-        console.log('[Background] FINAL PROMPT for generateReply:', prompt);
-        const reply = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userSettings.userPosts, userSettings.likedTweets /*, systemMessage if needed for this call*/ );
-        sendResponse({ reply });
+        const { tweetData, tone, userInstruction } = message;
+        console.log('[Background] Generating reply for tweet:', tweetData);
+        
+        if (!tweetData || !tweetData.tweetText) {
+          sendResponse({ error: 'Invalid tweet data. Cannot generate reply.' });
+          return;
+        }
+
+        // Get user's writing samples for personalization
+        let writingSamples = [];
+        try {
+          const result = await chrome.storage.local.get(['userWritingSamples']);
+          if (result.userWritingSamples && Array.isArray(result.userWritingSamples)) {
+            writingSamples = result.userWritingSamples.slice(0, 5); // Take up to 5 samples
+          }
+        } catch (error) {
+          console.error('[Background] Error retrieving user writing samples:', error);
+          // Continue without samples
+        }
+
+        // Construct prompt with enhanced instructions
+        const postSeparator = '###POST_SEPARATOR###';
+        const prompt = `
+        Generate 5 distinct reply suggestions to the following tweet by ${tweetData.tweetAuthorHandle || 'the author'}:
+
+        "${tweetData.tweetText}"
+
+        ${userSettings.profileBio ? `IMPORTANT - Match this bio/style: ${userSettings.profileBio}` : ''}
+        
+        ${writingSamples.length > 0 ?
+          `IMPORTANT - Match the style, tone, and vocabulary of these writing samples:
+          ${writingSamples.map((sample, i) => `Sample ${i+1}: "${sample}"`).join('\n')}` : ''}
+        
+        STRICT REQUIREMENTS:
+        1. Create 5 COMPLETELY DIFFERENT replies that match the user's writing style
+        2. Each reply must have a distinct angle or approach
+        3. DO NOT use ANY hyphens (- or --) in ANY of the replies - this is very important
+        4. Each reply should be 1-3 sentences, concise and engaging
+        5. Match the user's vocabulary level, sentence structure, and conversational style
+        6. Format each reply separated by "${postSeparator}"
+        7. Tone should be: ${tone || 'neutral'}
+        ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ''}
+        `;
+        
+        try {
+          const response = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userWritingSamples, userSettings.likedTweets);
+          
+          // Process the response to get 5 distinct replies
+          const replies = processAIResponse(response, postSeparator);
+          
+          // Ensure no hyphens in the final replies as a fallback
+          const cleanedReplies = replies.map(reply => removeHyphens(reply));
+          
+          // Send each reply as a separate message
+          const formattedResponse = {
+            allReplies: cleanedReplies,
+            reply: cleanedReplies[0] // For backward compatibility
+          };
+          
+          sendResponse(formattedResponse);
+        } catch (error) {
+          console.error('[Background] Error generating reply:', error);
+          sendResponse({ error: `Error generating reply: ${error.message}` });
+        }
     } else if (message.type === 'GENERATE_AI_REPLY') {
         const { data, tone, userInstruction } = message; // Assuming data and userInstruction
         // ... (prompt construction as in the diff) ...
@@ -456,6 +513,44 @@ async function transcribeAudioWithOpenAI(audioBlob, apiKey) {
     console.error('[XCO-Poster BG] Error calling OpenAI Transcription API:', error);
     return { error: `Network or other error: ${error.message}` };
   }
+}
+
+// Process the AI response to extract multiple reply suggestions
+function processAIResponse(response, separator) {
+  if (!response) {
+    return ['Sorry, I couldn\'t generate a reply.'];
+  }
+  
+  // If the response contains the separator, split by it
+  if (response.includes(separator)) {
+    const replies = response.split(separator)
+      .map(reply => reply.trim())
+      .filter(reply => reply.length > 0); // Filter out empty strings
+    
+    // If we got viable replies, return them (up to 5)
+    if (replies.length > 0) {
+      return replies.slice(0, 5);
+    }
+  }
+  
+  // If no separator or no valid replies after splitting, return the whole response as one reply
+  return [response];
+}
+
+// Remove hyphens from text (fallback safety measure)
+function removeHyphens(text) {
+  if (!text) return text;
+  
+  // Replace single hyphens with spaces or appropriate punctuation
+  let result = text.replace(/([a-zA-Z])\s*-\s*([a-zA-Z])/g, '$1 $2'); // word - word -> word word
+  
+  // Replace double hyphens
+  result = result.replace(/--/g, '—'); // Replace double hyphen with em dash
+  
+  // Replace any remaining single hyphens
+  result = result.replace(/-/g, '·'); // Fallback replacement
+  
+  return result;
 }
 
 // Helper function to convert Data URL to Blob

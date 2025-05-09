@@ -19,7 +19,7 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
   
   const tweetAuthor = document.createElement('div');
   tweetAuthor.className = 'tweet-author';
-  tweetAuthor.textContent = `@${tweet.tweetAuthorHandle}`;
+  tweetAuthor.textContent = `@${tweet.tweetAuthorHandle || 'author'}`;
   
   const tweetText = document.createElement('div');
   tweetText.className = 'tweet-text';
@@ -29,71 +29,234 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
   tweetCard.appendChild(tweetText);
   container.appendChild(tweetCard);
   
-  // Messages
-  const messagesContainer = document.createElement('div');
-  messagesContainer.className = 'messages';
+  // Multiple Reply Suggestions
+  const suggestionsContainer = document.createElement('div');
+  suggestionsContainer.className = 'suggestions-container';
   
+  // Title for suggestions
+  const suggestionsTitle = document.createElement('h3');
+  suggestionsTitle.className = 'suggestions-title';
+  suggestionsTitle.textContent = 'AI Reply Suggestions';
+  suggestionsContainer.appendChild(suggestionsTitle);
+  
+  // Check if we have AI messages with multiple suggestions
+  const aiMessages = messages.filter(msg => msg.sender === 'ai');
   if (messages.length === 0) {
     const emptyMessage = document.createElement('div');
     emptyMessage.className = 'empty-state-text';
-    emptyMessage.textContent = 'Generating a reply...';
-    messagesContainer.appendChild(emptyMessage);
-  } else {
-    messages.forEach(message => {
-      const messageEl = document.createElement('div');
-      messageEl.className = `message ${message.sender} slide-in`;
-      messageEl.textContent = message.text;
+    emptyMessage.textContent = 'Generating reply suggestions...';
+    suggestionsContainer.appendChild(emptyMessage);
+  } else if (aiMessages.length > 0) {
+    // Find the most recent AI message that might have multiple suggestions
+    const latestAIMessage = aiMessages[aiMessages.length - 1];
+    
+    // Check if we have multiple suggestions in the allReplies property
+    const allReplies = latestAIMessage.allReplies || [latestAIMessage.text];
+    
+    // Render each suggestion as a card
+    allReplies.forEach((reply, index) => {
+      const suggestionCard = document.createElement('div');
+      suggestionCard.className = 'suggestion-card slide-in';
       
-      // Add actions for AI messages
-      if (message.sender === 'ai') {
-        const actionsEl = document.createElement('div');
-        actionsEl.className = 'message-actions';
-        
-        const useButton = document.createElement('button');
-        useButton.className = 'message-button';
-        useButton.textContent = 'Use Reply';
-        useButton.addEventListener('click', () => onUseReply(message.text));
-        
-        const copyButton = document.createElement('button');
-        copyButton.className = 'message-button';
-        copyButton.textContent = 'Copy';
-        copyButton.addEventListener('click', () => {
-          navigator.clipboard.writeText(message.text);
-          
-          // Show copied indicator
-          copyButton.textContent = 'Copied!';
-          setTimeout(() => {
-            copyButton.textContent = 'Copy';
-          }, 2000);
-        });
-        
-        const regenerateButton = document.createElement('button');
-        regenerateButton.className = 'message-button';
-        regenerateButton.textContent = '🔄';
-        regenerateButton.title = 'Regenerate';
-        regenerateButton.addEventListener('click', () => {
-          if (typeof onRegenerateReply === 'function') {
-            console.log('[ReplyTab] Regenerate button clicked for tweet:', tweet);
-            // Assuming 'tweet' object contains necessary info like an ID or the original text for context.
-            // If tweet.id is available and preferred: onRegenerateReply(tweet.id);
-            // For now, passing the whole tweet object might be more flexible.
-            onRegenerateReply(tweet); 
-          } else {
-            console.error('[ReplyTab] onRegenerateReply is not a function or not provided. Cannot regenerate.');
-          }
-        });
-        
-        actionsEl.appendChild(useButton);
-        actionsEl.appendChild(copyButton);
-        actionsEl.appendChild(regenerateButton);
-        messageEl.appendChild(actionsEl);
-      }
+      // Suggestion number
+      const suggestionNumber = document.createElement('div');
+      suggestionNumber.className = 'suggestion-number';
+      suggestionNumber.textContent = `${index + 1}`;
+      suggestionCard.appendChild(suggestionNumber);
       
-      messagesContainer.appendChild(messageEl);
+      // Suggestion text
+      const suggestionText = document.createElement('div');
+      suggestionText.className = 'suggestion-text';
+      suggestionText.textContent = reply;
+      suggestionCard.appendChild(suggestionText);
+      
+      // Actions for this suggestion
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'message-actions';
+      
+      const useButton = document.createElement('button');
+      useButton.className = 'message-button';
+      useButton.textContent = 'Use Reply';
+      useButton.addEventListener('click', () => onUseReply(reply));
+      
+      const copyButton = document.createElement('button');
+      copyButton.className = 'message-button';
+      copyButton.textContent = 'Copy';
+      copyButton.addEventListener('click', () => {
+        navigator.clipboard.writeText(reply);
+        
+        // Show copied indicator
+        copyButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyButton.textContent = 'Copy';
+        }, 2000);
+      });
+      
+      actionsEl.appendChild(useButton);
+      actionsEl.appendChild(copyButton);
+      suggestionCard.appendChild(actionsEl);
+      
+      suggestionsContainer.appendChild(suggestionCard);
     });
+    
+    // Add regenerate button for all suggestions
+    const regenerateContainer = document.createElement('div');
+    regenerateContainer.className = 'regenerate-container';
+    
+    const regenerateButton = document.createElement('button');
+    regenerateButton.className = 'regenerate-button';
+    regenerateButton.innerHTML = ' Regenerate All Suggestions';
+    regenerateButton.addEventListener('click', () => {
+      if (typeof onRegenerateReply === 'function') {
+        console.log('[ReplyTab] Regenerate button clicked for tweet:', tweet);
+        onRegenerateReply(tweet); 
+      } else {
+        console.error('[ReplyTab] onRegenerateReply is not a function or not provided. Cannot regenerate.');
+      }
+    });
+    
+    regenerateContainer.appendChild(regenerateButton);
+    suggestionsContainer.appendChild(regenerateContainer);
+  } else {
+    // If there are messages but none from AI
+    const noSuggestions = document.createElement('div');
+    noSuggestions.className = 'empty-state-text';
+    noSuggestions.textContent = 'No AI suggestions available yet.';
+    suggestionsContainer.appendChild(noSuggestions);
   }
   
-  container.appendChild(messagesContainer);
+  container.appendChild(suggestionsContainer);
+  
+  // Add Guiding Questions section
+  const guidingQuestionsContainer = document.createElement('div');
+  guidingQuestionsContainer.className = 'guiding-questions-container';
+  
+  const questionsTitle = document.createElement('h3');
+  questionsTitle.className = 'questions-title';
+  questionsTitle.textContent = 'Brainstorm Your Own Reply';
+  guidingQuestionsContainer.appendChild(questionsTitle);
+  
+  const questionsDescription = document.createElement('p');
+  questionsDescription.className = 'questions-description';
+  questionsDescription.textContent = 'Consider these questions to help formulate your own reply:';
+  guidingQuestionsContainer.appendChild(questionsDescription);
+  
+  // Add the three guiding questions
+  const questions = [
+    "What's the main point you want to make in your reply?",
+    "How can you add your unique perspective or a personal touch?",
+    "Is there a specific emotion (e.g., agreement, curiosity, humor) you want to convey?"
+  ];
+  
+  const questionsList = document.createElement('ul');
+  questionsList.className = 'questions-list';
+  
+  questions.forEach(question => {
+    const questionItem = document.createElement('li');
+    questionItem.className = 'question-item';
+    questionItem.textContent = question;
+    questionsList.appendChild(questionItem);
+  });
+  
+  guidingQuestionsContainer.appendChild(questionsList);
+  container.appendChild(guidingQuestionsContainer);
+  
+  // Add some CSS for the new components in the head section
+  const styleElement = document.createElement('style');
+  styleElement.textContent = `
+    .suggestions-container, .guiding-questions-container {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      background-color: #15202b;
+    }
+    
+    .suggestions-title, .questions-title {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #e7e9ea;
+    }
+    
+    .suggestion-card {
+      margin-bottom: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      background-color: #192734;
+      position: relative;
+    }
+    
+    .suggestion-number {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: #1da1f2;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .suggestion-text {
+      margin-left: 26px;
+      margin-bottom: 10px;
+      color: #e7e9ea;
+      line-height: 1.4;
+    }
+    
+    .regenerate-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 12px;
+    }
+    
+    .regenerate-button {
+      background-color: #192734;
+      color: #1da1f2;
+      border: 1px solid #1da1f2;
+      border-radius: 20px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background-color 0.2s;
+    }
+    
+    .regenerate-button:hover {
+      background-color: rgba(29, 161, 242, 0.1);
+    }
+    
+    .questions-description {
+      color: #8899a6;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    
+    .questions-list {
+      padding-left: 24px;
+      margin: 0;
+    }
+    
+    .question-item {
+      color: #e7e9ea;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    
+    .slide-in {
+      animation: slideIn 0.3s ease-out forwards;
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(styleElement);
   
   return container;
 }

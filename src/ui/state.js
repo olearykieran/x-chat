@@ -109,54 +109,50 @@ function checkCurrentContext() {
         // Check for error to avoid unchecked runtime.lastError
         if (chrome.runtime.lastError) {
           console.log('Communication error with GET_CURRENT_TWEET (content script might not be ready yet):', chrome.runtime.lastError.message);
-          // Even if GET_CURRENT_TWEET fails, check composer to set initial tab correctly.
-          // TWEET_FOCUSED event will later update currentTweet if a tweet is focused.
-          chrome.tabs.sendMessage(tabs[0].id, { type: 'CHECK_COMPOSER_EMPTY' }, (composerResponse) => {
-            if (chrome.runtime.lastError) {
-              console.log('Communication error with CHECK_COMPOSER_EMPTY:', chrome.runtime.lastError.message);
-              // Default to compose if we can't determine state
-              updateState({ activeTab: 'compose', currentTweet: null });
-              fetchTrendingAndGenerateIdeas();
-              return;
-            }
-            if (composerResponse && composerResponse.isEmpty) {
-              updateState({ activeTab: 'compose', currentTweet: null });
-              fetchTrendingAndGenerateIdeas();
-            } else {
-              // If composer is not empty or not found, but no tweet focused, perhaps default to reply with null tweet
-              // or wait for TWEET_FOCUSED. For now, let's ensure activeTab is 'reply' if not clearly 'compose'.
-              updateState({ activeTab: 'reply', currentTweet: null });
-            }
+          updateState({
+            error: null,
+            loading: false
           });
-          return; // Exit GET_CURRENT_TWEET callback
+          return;
         }
         
         if (response && response.tweetData) {
-          updateState({ 
-            currentTweet: response.tweetData,
-            activeTab: 'reply'
+          console.log('[Sidepanel State] Current tweet focused:', response.tweetData);
+          
+          // Ensure the tweet has an author handle
+          const tweetData = response.tweetData;
+          if (!tweetData.tweetAuthorHandle || tweetData.tweetAuthorHandle === 'undefined') {
+            console.log('[Sidepanel State] Author handle is missing, updating with fallback');
+            tweetData.tweetAuthorHandle = tweetData.tweetAuthorName || 'author';
+          }
+          
+          updateState({
+            currentTweet: tweetData,
+            activeTab: 'reply',
+            messages: [], // Clear messages when auto-selecting a new tweet
+            loading: false
           });
+          
+          // Auto-generate reply if we have a tweet selected
           generateReply();
         } else {
-          // No tweetData from GET_CURRENT_TWEET, check composer
-          chrome.tabs.sendMessage(tabs[0].id, { type: 'CHECK_COMPOSER_EMPTY' }, (composerResponse) => {
-            if (chrome.runtime.lastError) {
-              console.log('Communication error with CHECK_COMPOSER_EMPTY (after no tweetData):', chrome.runtime.lastError.message);
-              updateState({ activeTab: 'reply', currentTweet: null }); // Default to reply, wait for TWEET_FOCUSED
-              return;
-            }
-            if (composerResponse && composerResponse.isEmpty) {
-              updateState({ activeTab: 'compose', currentTweet: null });
-              fetchTrendingAndGenerateIdeas();
-            } else {
-              updateState({ activeTab: 'reply', currentTweet: null }); // Default to reply if composer not empty/found
-            }
+          console.log('[Sidepanel State] No tweet currently focused. Defaulting to compose.');
+          // We're either in compose mode or no tweet is focused
+          updateState({
+            currentTweet: null,
+            loading: false
           });
+          fetchTrendingAndGenerateIdeas(); // Generate ideas in compose mode
         }
       });
     } else {
-      // Not on Twitter/X.com, default to compose mode
-      updateState({ activeTab: 'compose', currentTweet: null });
+      // Not on Twitter
+      console.log('[Sidepanel State] Not on Twitter.com/X.com. Defaulting to compose.');
+      updateState({
+        currentTweet: null,
+        activeTab: 'compose',
+        loading: false
+      });
       fetchTrendingAndGenerateIdeas();
     }
   });
@@ -205,44 +201,74 @@ async function fetchTrendingAndGenerateIdeas() {
 }
 
 /**
- * Generate reply for current tweet
- */
-function generateReply() {
-  if (!currentState.currentTweet) return;
-  
-  updateState({ loading: true });
-  
-  try {
-    chrome.runtime.sendMessage({ 
-      type: 'GENERATE_REPLY',
-      tweetData: currentState.currentTweet,
-      tone: currentState.selectedTone
-    }, (response) => {
-      updateState({ loading: false });
-      
-      if (response && response.reply) {
-        addMessage('ai', response.reply);
-      } else if (response && response.error) {
-        updateState({ error: response.error });
-      }
-    });
-  } catch (error) {
-    console.error('Error generating reply:', error);
-    updateState({ 
-      loading: false,
-      error: 'Failed to generate reply. Please try again.'
-    });
-  }
-}
-
-/**
  * Prepares the state for a new AI-generated reply by clearing old AI messages and setting loading state.
  */
 export function prepareForNewAiReply() {
+  const userMessages = currentState.messages.filter(m => m.sender === 'user');
   updateState({
-    messages: currentState.messages.filter(msg => msg.sender !== 'ai'), // Keep only user messages or non-AI messages
+    messages: userMessages,
     loading: true,
     error: null
+  });
+}
+
+/**
+ * Generate reply for current tweet
+ */
+function generateReply() {
+  if (!currentState.currentTweet) {
+    console.error('[Sidepanel State] Cannot generate reply: No tweet selected');
+    return;
+  }
+  
+  // Set loading state
+  updateState({ loading: true, error: null });
+  
+  // Clear existing AI messages
+  const userMessages = currentState.messages.filter(m => m.sender === 'user');
+  updateState({ messages: userMessages });
+  
+  // Send tweet to background for processing
+  chrome.runtime.sendMessage({
+    type: 'GENERATE_REPLY',
+    tweetData: currentState.currentTweet,
+    tone: currentState.selectedTone
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('[Sidepanel State] Error generating reply:', chrome.runtime.lastError);
+      updateState({ 
+        loading: false, 
+        error: `Error generating reply: ${chrome.runtime.lastError.message}` 
+      });
+      return;
+    }
+    
+    if (response.error) {
+      updateState({ loading: false, error: response.error });
+    } else {
+      // Handle multiple suggestions if available
+      if (response.allReplies && Array.isArray(response.allReplies) && response.allReplies.length > 0) {
+        // Create an AI message with all replies
+        const aiMessage = {
+          sender: 'ai',
+          text: response.allReplies[0], // Use first suggestion as the primary text
+          allReplies: response.allReplies // Store all replies for the UI to access
+        };
+        updateState({ 
+          messages: [...userMessages, aiMessage],
+          loading: false 
+        });
+      } else if (response.reply) {
+        // Fallback to old format for backward compatibility
+        addMessage('ai', response.reply);
+        updateState({ loading: false });
+      } else {
+        updateState({ 
+          loading: false, 
+          error: 'Received empty response from server' 
+        });
+      }
+    }
   });
 }
 
@@ -250,18 +276,26 @@ export function prepareForNewAiReply() {
  * Add a message to the chat
  * @param {string} sender - 'user' or 'ai'
  * @param {string} text - Message text
+ * @param {Array} [allReplies] - Optional array of all AI-generated replies
  */
-export function addMessage(sender, text) {
+function addMessage(sender, text, allReplies = null) {
   const newMessage = {
-    id: Date.now(),
     sender,
     text,
-    timestamp: new Date().toISOString()
+    id: Date.now()
   };
   
+  // If this is an AI message with multiple replies, add them
+  if (sender === 'ai' && allReplies && Array.isArray(allReplies)) {
+    newMessage.allReplies = allReplies;
+  }
+  
+  // Add message
   updateState({
     messages: [...currentState.messages, newMessage]
   });
+  
+  // Scroll to bottom (handled in UI)
 }
 
 /**
