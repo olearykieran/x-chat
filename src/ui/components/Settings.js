@@ -44,8 +44,17 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
       saveApiKey(apiKeyFromForm);
     }
 
-    // Determine useOwnKey status from radio buttons
-    const useOwnKey = formData.get("keyMode") === "useOwnKey";
+    // Determine useOwnKey status from radio buttons AND API key state
+    // If an API key is provided, we MUST set useOwnKey to true regardless of radio selection
+    // This ensures consistency between UI intent (entering a key) and saved settings
+    let useOwnKey = formData.get("keyMode") === "useOwnKey";
+    
+    // Force useOwnKey to true if API key is present
+    if (apiKeyFromForm && apiKeyFromForm.trim().length > 0) {
+      useOwnKey = true;
+      console.log("[Settings] API key provided in form submission. Forcing useOwnKey to true.");
+    }
+    
     newProfileSettings.useOwnKey = useOwnKey;
 
     // Profile Bio
@@ -155,6 +164,23 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   apiKeyInput.value = settings.apiKey || "";
   apiKeyInput.placeholder = "sk-...";
   apiKeyInput.required = settings.useOwnKey;
+
+  // Auto-select "Use my own OpenAI API key" option when API key input field is used
+  apiKeyInput.addEventListener("input", (e) => {
+    // If user is typing/pasting a key, automatically select "Use my own API key" option
+    if (e.target.value.trim().length > 0) {
+      useOwnKeyInput.checked = true;
+      usePremiumInput.checked = false;
+      
+      // Apply the UI updates that normally happen when clicking the "Use my own API key" radio
+      apiKeyInput.required = true;
+      apiKeyInput.disabled = false;
+      premiumDescription.style.display = "none";
+      apiKeyInput.parentElement.style.display = ""; // Show API key input section
+      
+      console.log("[Settings] API key input detected. Auto-selected 'Use my own OpenAI API key' option.");
+    }
+  });
 
   // Toggle API key input based on mode
   useOwnKeyInput.addEventListener("change", () => {

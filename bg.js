@@ -1,4 +1,5 @@
 import { callOpenAI, fetchTrendingTopics } from "./lib/api.js";
+import { DEFAULT_SETTINGS } from "./lib/constants.js";
 
 // Web search function using OpenAI's completions API with system instructions for web search
 async function searchWeb(query, userLocation = null, contextSize = "medium") {
@@ -40,15 +41,53 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
     throw error;
   }
 }
-import { DEFAULT_SETTINGS } from "./lib/constants.js";
+
+// Function to check API key and warn if not set
+function checkAndWarnApiKey() {
+  if (!userSettings.apiKey) {
+    console.warn(
+      "[Background] API key is not set. Some features may not work."
+    );
+    // Potentially send a message to UI or show a notification if desired
+  } else {
+    console.log("[Background] API key check passed. userSettings.apiKey:", userSettings.apiKey);
+  }
+}
+
+// Function to initialize alarms (e.g., for periodic tasks)
+function initializeAlarms() {
+  // Example: Create an alarm that fires every hour
+  // chrome.alarms.create("hourlyPing", { periodInMinutes: 60 });
+  // console.log("[Background] Alarms initialized.");
+
+  // Clear any existing 'postTweet' alarm to avoid duplicates if script reloads
+  chrome.alarms.clear("postTweet", (wasCleared) => {
+    if (wasCleared) {
+      console.log("[Background] Cleared existing 'postTweet' alarm.");
+    }
+  });
+  // Clear any existing 'checkQueue' alarm
+  chrome.alarms.clear("checkQueue", (wasCleared) => {
+    if (wasCleared) {
+      console.log("[Background] Cleared existing 'checkQueue' alarm.");
+    }
+  });
+
+  // Create a new 'checkQueue' alarm to run periodically (e.g., every minute)
+  chrome.alarms.create("checkQueue", { delayInMinutes: 1, periodInMinutes: 1 });
+  console.log("[Background] 'checkQueue' alarm created to run every minute after a 1-minute delay.");
+}
 
 // Initialize state
+// Ensure userSettings are initialized with defaults from constants.js
 let userSettings = {
-  apiKey: null,
-  profileBio: "",
-  hashtags: [],
-  tone: "neutral",
+  apiKey: DEFAULT_SETTINGS.apiKey !== undefined ? DEFAULT_SETTINGS.apiKey : null, // Default is ''
+  profileBio: DEFAULT_SETTINGS.profileBio !== undefined ? DEFAULT_SETTINGS.profileBio : "",
+  hashtags: Array.isArray(DEFAULT_SETTINGS.hashtags) ? [...DEFAULT_SETTINGS.hashtags] : [],
+  tone: DEFAULT_SETTINGS.defaultTone !== undefined ? DEFAULT_SETTINGS.defaultTone : "neutral", // Maps from defaultTone
+  useOwnKey: DEFAULT_SETTINGS.useOwnKey !== undefined ? DEFAULT_SETTINGS.useOwnKey : true // Default is true
 };
+console.log("[Background] Initial userSettings.useOwnKey after DEFAULT_SETTINGS:", userSettings.useOwnKey);
 
 let userWritingSamples = []; // To store scraped user posts for voice training
 let userLikedTopicsRaw = []; // To store scraped liked posts for topic generation
@@ -62,71 +101,58 @@ chrome.runtime.onStartup.addListener(() => {
   console.log("[Background] onStartup triggered. Calling loadDataFromStorage.");
   loadDataFromStorage();
 });
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("[Background] onInstalled triggered. Calling loadDataFromStorage.");
-  loadDataFromStorage();
+
+chrome.runtime.onInstalled.addListener(async (details) => {
+  console.log("[Background] onInstalled triggered. Reason:", details.reason);
+
+  if (details.reason === "install" || details.reason === "update") {
+    console.log("[Background] onInstalled: Attempting to clear chrome.storage.sync due to install/update.");
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.storage.sync.clear(() => {
+          if (chrome.runtime.lastError) {
+            console.error("[Background] onInstalled: Error clearing sync storage:", chrome.runtime.lastError.message);
+            reject(chrome.runtime.lastError);
+          } else {
+            console.log("[Background] onInstalled: chrome.storage.sync CLEARED successfully.");
+            resolve();
+          }
+        });
+      });
+    } catch (error) {
+      console.error("[Background] onInstalled: Exception during sync storage clear:", error);
+    }
+  }
+  // Now, after attempting to clear, load data.
+  // This ensures that loadDataFromStorage runs after the clear attempt.
+  console.log("[Background] onInstalled: Proceeding to call loadDataFromStorage.");
+  await loadDataFromStorage(); 
+  checkAndWarnApiKey(); // Moved from initialize function
+  initializeAlarms(); // Moved from initialize function
+  // Any other specific onInstalled logic can go here
+  console.log("[Background] onInstalled event processing finished.");
 });
 
-function loadDataFromStorage() {
-  console.log(
-    "[Background] loadDataFromStorage called. Current userSettings BEFORE sync.get:",
-    JSON.parse(JSON.stringify(userSettings))
-  );
-  chrome.storage.sync.get(
-    ["apiKey", "profileBio", "hashtags", "tone", "settings"],
-    (result) => {
-      // also get 'settings' for broader view
-      console.log("[Background] loadDataFromStorage - Data retrieved from sync:", result);
-      if (chrome.runtime.lastError) {
-        console.error(
-          "[Background] Error loading data from storage:",
-          chrome.runtime.lastError
-        );
-        return;
-      }
-      if (result.apiKey) {
-        userSettings.apiKey = result.apiKey;
-        globalThis.apiKeyInitialized = true; // Set flag indicating API key has been loaded
-        console.log(
-          "[Background] loadDataFromStorage: API Key loaded from storage:",
-          userSettings.apiKey
-        );
-      } else {
-        console.log(
-          "[Background] loadDataFromStorage: API Key NOT found in storage result."
-        );
-        globalThis.apiKeyInitialized = false; // Mark explicitly that we've checked and didn't find it
-      }
-      if (result.profileBio) userSettings.profileBio = result.profileBio;
-      if (result.hashtags) userSettings.hashtags = result.hashtags;
-      if (result.tone) userSettings.tone = result.tone;
-      // If there's a legacy 'settings' object, merge it carefully or prioritize individual keys
-      if (result.settings && typeof result.settings === "object") {
-        console.log(
-          "[Background] loadDataFromStorage: Found a legacy settings object in storage:",
-          result.settings
-        );
-        // Prioritize individual keys if they exist, otherwise take from settings object
-        userSettings.profileBio =
-          result.profileBio || result.settings.profileBio || DEFAULT_SETTINGS.profileBio;
-        userSettings.hashtags =
-          result.hashtags || result.settings.hashtags || DEFAULT_SETTINGS.hashtags;
-        userSettings.tone =
-          result.tone || result.settings.defaultTone || DEFAULT_SETTINGS.tone; // Note: settings uses defaultTone
-        // API key is handled separately above
-      }
+// Initialize and load data when the extension starts (not just onInstalled)
+async function initialize() {
+  console.log("[Background] Initializing script. Current userSettings:", userSettings);
+  await loadDataFromStorage(); // Ensure settings are loaded on every startup
+  // checkAndWarnApiKey(); // Moved to onInstalled and regular startup load
+  // initializeAlarms();   // Moved to onInstalled
 
-      console.log(
-        "[Background] loadDataFromStorage: userSettings AFTER sync.get and processing:",
-        JSON.parse(JSON.stringify(userSettings))
-      );
-      console.log("[Background] Initial settings loaded:", userSettings);
-      console.log("[Background] Initial voice/topic data loaded."); // Assuming this means samples/topics loaded elsewhere or default
-    }
-  );
+  // Initial fetch of voice/topic data if not already populated, or if settings indicate it's needed
+  if (!userSettings.profileBio || userSettings.profileBio.trim() === "") {
+    // Potentially fetch/update these if they are empty or based on some logic
+    console.log("[Background] Initial voice/topic data loaded.");
+  }
 }
-// Call it once on script load as well, as onStartup/onInstalled might not cover all reload scenarios during development
-loadDataFromStorage();
+
+// Call initialize on extension startup (when the background script loads)
+initialize().then(() => {
+  console.log("[Background] Initial script loading and setup complete.");
+}).catch(error => {
+  console.error("[Background] Error during initial script loading:", error);
+});
 
 // Helper function to get API key from storage
 async function getApiKey() {
@@ -167,15 +193,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             );
             delete settingsToSync.apiKey; // Do not let SAVE_SETTINGS overwrite/save apiKey
           }
-          await chrome.storage.sync.set(settingsToSync);
+          console.log("[Background] SAVE_SETTINGS - message.settings.useOwnKey received:", message.settings.useOwnKey);
+          const tempSettingsToSync = { ...settingsToSync }; // Temp for logging before potential modification
+          console.log("[Background] SAVE_SETTINGS - settingsToSync.useOwnKey BEFORE sync.set:", tempSettingsToSync.useOwnKey);
 
-          // Object.assign will merge. If message.settings has no apiKey prop, userSettings.apiKey remains untouched.
-          // If message.settings *did* have apiKey: '' (which it shouldn't anymore), it would overwrite.
+          console.log("[Background] SAVE_SETTINGS raw message.settings received:", JSON.parse(JSON.stringify(message.settings))); // Log the full received settings
+          console.log("[Background] SAVE_SETTINGS - Full settingsToSync object BEFORE sync.set:", JSON.parse(JSON.stringify(settingsToSync)));
+
+          await chrome.storage.sync.set(settingsToSync);
+          // Update local userSettings state in bg.js
           Object.assign(userSettings, message.settings);
-          console.log(
-            "[Background] SAVE_SETTINGS: userSettings after Object.assign:",
-            JSON.parse(JSON.stringify(userSettings))
-          );
+          // Ensure 'tone' is consistent if 'defaultTone' was passed (again, after Object.assign)
+          if (message.settings.defaultTone !== undefined) {
+            userSettings.tone = message.settings.defaultTone;
+          }
+          console.log("[Background] SAVE_SETTINGS - userSettings.useOwnKey AFTER Object.assign:", userSettings.useOwnKey);
+
+          console.log("[Background] Settings saved and local userSettings updated:", JSON.parse(JSON.stringify(userSettings)));
           sendResponse({ success: true });
         } else {
           console.error(
@@ -194,20 +228,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.sidePanel.open();
       sendResponse({ success: true });
       return; // Does not need API key
-    }
-    if (message.type === "SAVE_API_KEY") {
-      // This was present in one of the diffs
-      userSettings.apiKey = message.apiKey;
+    } else if (message.type === "SAVE_API_KEY") {
+      // Store API key in chrome.storage.sync
       await chrome.storage.sync.set({ apiKey: message.apiKey });
-      console.log(
-        "[Background] SAVE_API_KEY: userSettings.apiKey set to:",
-        userSettings.apiKey,
-        "Saved to sync."
-      );
-      sendResponse({ success: true }); // Simplified, add error handling if needed
-      return;
-    }
-    if (message.type === "COLLECT_USER_DATA_FOR_TRAINING") {
+      // Also update local state
+      userSettings.apiKey = message.apiKey;
+      
+      // Handle useOwnKey setting that comes with saving an API key
+      if (message.useOwnKey !== undefined) {
+        console.log("[Background] SAVE_API_KEY: Also received useOwnKey=", message.useOwnKey);
+        await chrome.storage.sync.set({ useOwnKey: message.useOwnKey });
+        userSettings.useOwnKey = message.useOwnKey;
+        console.log("[Background] SAVE_API_KEY: userSettings.useOwnKey set to:", message.useOwnKey, "Saved to sync.");
+      }
+      
+      console.log("[Background] SAVE_API_KEY: userSettings.apiKey set to:", message.apiKey, "Saved to sync.");
+      
+      sendResponse({ success: true });
+    } else if (message.type === "COLLECT_USER_DATA_FOR_TRAINING") {
       console.log(
         `[Background] Forwarding ${message.payload.dataType} data to side panel:`,
         message.payload.data
@@ -439,13 +477,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         
         STRICT REQUIREMENTS FOR REPLIES:
-        1. Create 5 COMPLETELY DIFFERENT replies that match the user's writing style
-        2. Each reply must have a distinct angle or approach
-        3. DO NOT use ANY hyphens (- or --) in ANY of the replies - this is very important
-        4. Each reply should be 1-3 sentences, concise and engaging
-        5. Match the user's vocabulary level, sentence structure, and conversational style
-        6. Format each reply separated by "${postSeparator}"
-        7. Tone should be: ${tone || "neutral"}
+        1.  Create 5 COMPLETELY DIFFERENT replies that match the user's writing style
+        2.  Each reply must have a distinct angle or approach
+        3.  DO NOT use ANY hyphens (- or --) in ANY of the replies - this is very important
+        4.  Each reply should be 1-3 sentences, concise and engaging
+        5.  Match the user's vocabulary level, sentence structure, and conversational style
+        6.  Format each reply separated by "${postSeparator}"
+        7.  Tone should be: ${tone || "neutral"}
         ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ""}
         
         AFTER THE REPLIES, INCLUDE "${questionSeparator}" FOLLOWED BY 3 CONTEXTUAL GUIDING QUESTIONS:
@@ -864,9 +902,9 @@ function processAIResponse(response, replySeparator, questionSeparator) {
     return {
       replies: ["Sorry, I couldn't generate a reply."],
       questions: [
-        "What points would you like to make about this tweet?",
-        "How do you personally feel about the content of this tweet?",
-        "Is there a specific aspect of the tweet you want to respond to?",
+        "What points would you like to make about this?",
+        "What perspective would you like to share on this topic?",
+        "How might you contribute to this conversation?",
       ],
     };
   }
@@ -875,9 +913,9 @@ function processAIResponse(response, replySeparator, questionSeparator) {
   const result = {
     replies: [],
     questions: [
-      "What points would you like to make about this tweet?",
-      "How do you personally feel about the content of this tweet?",
-      "Is there a specific aspect of the tweet you want to respond to?",
+      "What points would you like to make about this?",
+      "What perspective would you like to share on this topic?",
+      "How might you contribute to this conversation?",
     ],
   };
 
@@ -1107,10 +1145,14 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     // 2. Analyze liked posts for topics
     let userLikedTopicsRaw = [];
     try {
-      const data = await loadDataFromStorage("likedTweets");
-      userLikedTopicsRaw = data.likedTweets || [];
+      // Use optional chaining to safely access .likedTweets
+      // This prevents a TypeError if loadDataFromStorage("likedTweets") returns undefined.
+      userLikedTopicsRaw = (await loadDataFromStorage("likedTweets"))?.likedTweets || [];
     } catch (e) {
-      console.warn("[Background] Could not load liked tweets for topic analysis:", e);
+      // This catch block will now primarily handle other unexpected errors during storage access
+      // or if loadDataFromStorage itself throws an error for other reasons.
+      console.warn("[Background] Error during liked tweets data loading or processing:", e);
+      userLikedTopicsRaw = []; // Ensure it defaults to an empty array on any error
     }
     const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw);
     console.log("[Background] Topics from liked posts:", likedPostsTopics);
@@ -1195,13 +1237,13 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
       }
       
       STRICT REQUIREMENTS FOR TWEETS:
-      1. Create 5 COMPLETELY DIFFERENT tweet ideas with diverse angles and approaches
-      2. Each tweet must be concise (max 280 characters) and engaging
-      3. DO NOT use ANY hyphens (- or --) in ANY of the tweets - this is very important
-      4. Match the user's vocabulary level, sentence structure, and conversational style
-      5. Format each tweet separated by "${postSeparator}"
-      6. Tone should be: ${tone || "neutral"}
-      7. Include relevant hashtags where appropriate
+      1.  Create 5 COMPLETELY DIFFERENT tweet ideas with diverse angles and approaches
+      2.  Each tweet must be concise (max 280 characters) and engaging
+      3.  DO NOT use ANY hyphens (- or --) in ANY of the tweets - this is very important
+      4.  Match the user's vocabulary level, sentence structure, and conversational style
+      5.  Format each tweet separated by "${postSeparator}"
+      6.  Tone should be: ${tone || "neutral"}
+      7.  Include relevant hashtags where appropriate
       ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ""}
       
       AFTER THE TWEETS, INCLUDE "${questionSeparator}" FOLLOWED BY 3 BRAINSTORMING QUESTIONS:
@@ -1299,3 +1341,109 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     console.log(`[Background] Received non-post alarm: ${alarm.name}`);
   }
 });
+
+function loadDataFromStorage() {
+  console.log(
+    "[Background] loadDataFromStorage called. userSettings BEFORE sync.get (should be defaults):",
+    JSON.parse(JSON.stringify(userSettings))
+  );
+  chrome.storage.sync.get(
+    // Request all individual keys that we manage, plus the general 'settings' object for any legacy/other props
+    ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey", "settings"],
+    (result) => {
+      console.log("[Background] loadDataFromStorage - Data retrieved from sync:", result);
+      console.log("[Background] loadDataFromStorage - result.useOwnKey from sync before decision:", result.useOwnKey);
+      if (chrome.runtime.lastError) {
+        console.error(
+          "[Background] Error loading data from storage:",
+          chrome.runtime.lastError
+        );
+        return;
+      }
+
+      // Apply stored values if they exist, overwriting the defaults
+      if (result.apiKey !== undefined) {
+        userSettings.apiKey = result.apiKey;
+        globalThis.apiKeyInitialized = true;
+      } else {
+        // If apiKey is not in storage, globalThis.apiKeyInitialized should reflect that we've checked
+        // and it relies on its default (null or empty string from DEFAULT_SETTINGS).
+        globalThis.apiKeyInitialized = userSettings.apiKey !== null && userSettings.apiKey !== '';
+      }
+      if (result.profileBio !== undefined) {
+        userSettings.profileBio = result.profileBio;
+      }
+      if (result.hashtags !== undefined) {
+        userSettings.hashtags = result.hashtags;
+      }
+      if (result.tone !== undefined) {
+        userSettings.tone = result.tone; // This is the 'defaultTone' from settings UI
+      }
+      
+      // Special handling for useOwnKey to ensure default is set if not present in storage
+      if (result.useOwnKey === undefined) { // If truly not present in storage
+        console.log("[Background] loadDataFromStorage - useOwnKey is UNDEFINED in sync. Setting to default (true) and attempting to persist.");
+        userSettings.useOwnKey = true; // Apply default
+        chrome.storage.sync.set({ useOwnKey: true }, () => {
+          if (chrome.runtime.lastError) {
+            console.error("[Background] loadDataFromStorage - Error trying to persist default useOwnKey:", chrome.runtime.lastError.message);
+          } else {
+            console.log("[Background] loadDataFromStorage - Successfully persisted default useOwnKey: true to sync storage.");
+          }
+        });
+      } else { // Value exists in storage (could be true or false)
+        console.log("[Background] loadDataFromStorage - useOwnKey has a value in sync storage. Applying it:", result.useOwnKey);
+        userSettings.useOwnKey = result.useOwnKey; // Apply the stored value
+      }
+      console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+
+      // Handle the general 'settings' object from storage as a fallback or for additional properties
+      // This ensures that any settings not explicitly handled above but stored in the 'settings' object are still loaded.
+      // However, explicitly loaded settings (apiKey, profileBio, etc.) will take precedence if they were also in result.settings.
+      if (result.settings && typeof result.settings === "object") {
+        console.log(
+          "[Background] loadDataFromStorage: Applying general 'settings' object from storage:",
+          result.settings
+        );
+        // Merge, ensuring that explicitly loaded keys above are not overwritten by undefined values from result.settings
+        for (const key in result.settings) {
+          if (result.settings.hasOwnProperty(key)) {
+            // Do not overwrite apiKey, profileBio etc. if result.settings has them as undefined but they were set from top-level
+            if (key === 'apiKey' && result.settings.apiKey === undefined && result.apiKey !== undefined) continue;
+            if (key === 'profileBio' && result.settings.profileBio === undefined && result.profileBio !== undefined) continue;
+            if (key === 'hashtags' && result.settings.hashtags === undefined && result.hashtags !== undefined) continue;
+            // For 'tone' from settings, it's 'defaultTone', map to userSettings.tone
+            if (key === 'defaultTone' && result.settings.defaultTone !== undefined) {
+                userSettings.tone = result.settings.defaultTone;
+            } else if (key === 'tone' && result.settings.tone !== undefined) { // if it's just 'tone'
+                userSettings.tone = result.settings.tone;
+            }
+            if (key === 'useOwnKey' && result.settings.useOwnKey === undefined && result.useOwnKey !== undefined) continue;
+            
+            // For other keys, or if the top-level result.key was undefined, take from result.settings
+            if (['apiKey', 'profileBio', 'hashtags', 'tone', 'useOwnKey'].includes(key)) {
+                if (result[key] === undefined && result.settings[key] !== undefined) {
+                    if (key === 'defaultTone') { // map 'defaultTone' from settings object to 'tone'
+                        userSettings.tone = result.settings.defaultTone;
+                    } else {
+                        userSettings[key] = result.settings[key];
+                    }
+                }
+            } else if (result.settings[key] !== undefined) { // For any other non-explicitly handled keys
+                 userSettings[key] = result.settings[key];
+            }
+          }
+        }
+      }
+
+      console.log(
+        "[Background] loadDataFromStorage: userSettings AFTER sync.get and processing:",
+        JSON.parse(JSON.stringify(userSettings))
+      );
+      console.log("[Background] Initial settings loaded:", userSettings);
+      console.log("[Background] Initial voice/topic data loaded."); // Assuming this means samples/topics loaded elsewhere or default
+    }
+  );
+}
+// Call it once on script load as well, as onStartup/onInstalled might not cover all reload scenarios during development
+loadDataFromStorage();

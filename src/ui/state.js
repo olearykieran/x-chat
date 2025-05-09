@@ -409,7 +409,16 @@ export function saveSettings(newSettings) {
  */
 export function saveApiKey(apiKey) {
   console.log('[State] saveApiKey called with key:', apiKey ? "(key provided)" : "(key empty or null)");
-  chrome.runtime.sendMessage({ type: 'SAVE_API_KEY', apiKey: apiKey }, (response) => {
+  
+  // When a user is saving an API key, we almost certainly want to set useOwnKey to true
+  // We'll also send this to the background script to ensure consistency
+  const useOwnKey = apiKey && apiKey.trim().length > 0 ? true : currentState.settings.useOwnKey;
+  
+  chrome.runtime.sendMessage({ 
+    type: 'SAVE_API_KEY', 
+    apiKey: apiKey,
+    useOwnKey: useOwnKey // Add useOwnKey flag to the SAVE_API_KEY message 
+  }, (response) => {
     if (chrome.runtime.lastError) {
       console.error('[State] saveApiKey: Error sending SAVE_API_KEY message:', chrome.runtime.lastError.message);
       return;
@@ -418,7 +427,13 @@ export function saveApiKey(apiKey) {
     console.log('[State] saveApiKey: Response from SAVE_API_KEY in background:', response);
     if (response && response.success) {
       console.log('[State] saveApiKey: Background reported success. Attempting to update UI state.');
-      const newSettings = { ...currentState.settings, apiKey: apiKey }; 
+      // Update both the API key AND useOwnKey in the settings state
+      const newSettings = { 
+        ...currentState.settings, 
+        apiKey: apiKey,
+        useOwnKey: useOwnKey // Add this to ensure UI state reflects the correct option
+      }; 
+      console.log('[State] saveApiKey: Setting useOwnKey to', useOwnKey, 'because an API key was saved');
       updateState({ settings: newSettings }); 
       console.log(`[State] saveApiKey: UI state for settings.apiKey should now be: ${apiKey ? "(key provided)" : "(key empty or null)"}. Current actual currentState.settings.apiKey:`, currentState.settings.apiKey);
     } else {
@@ -578,36 +593,60 @@ export function setMessage(successMessage) {
  */
 export async function loadDataFromStorage() {
   return new Promise((resolve, reject) => {
-    chrome.storage.sync.get(['apiKey', 'settings', 'isPremium'], (result) => {
-      if (chrome.runtime.lastError) {
-        console.error('[State.js] loadDataFromStorage: Error loading data from storage:', chrome.runtime.lastError.message);
-        updateState({ error: `Error loading settings: ${chrome.runtime.lastError.message}` });
-        // Don't set loading: false here; initializeState handles overall loading state.
-        reject(chrome.runtime.lastError);
-        return;
-      }
-      
-      console.log('[State.js] loadDataFromStorage: Data retrieved from sync:', result);
-      const newStateUpdate = {};
-      let updatedAppSettings = { ...(getState().settings || DEFAULT_SETTINGS) };
+    // Add profileBio, hashtags, tone, useOwnKey to the keys to retrieve
+    chrome.storage.sync.get(
+      ['apiKey', 'settings', 'isPremium', 'profileBio', 'hashtags', 'tone', 'useOwnKey'], 
+      (result) => {
+        if (chrome.runtime.lastError) {
+          console.error('[State.js] loadDataFromStorage: Error loading data from storage:', chrome.runtime.lastError.message);
+          updateState({ error: `Error loading settings: ${chrome.runtime.lastError.message}` });
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        
+        console.log('[State.js] loadDataFromStorage: Data retrieved from sync:', result);
+        const newStateUpdate = {};
+        let updatedAppSettings = { ...(getState().settings || DEFAULT_SETTINGS) };
 
-      if (result.apiKey !== undefined) {
-        updatedAppSettings.apiKey = result.apiKey;
-        console.log('[State.js] loadDataFromStorage: API Key applied to settings object:', result.apiKey);
-      }
+        if (result.apiKey !== undefined) {
+          updatedAppSettings.apiKey = result.apiKey;
+          console.log('[State.js] loadDataFromStorage: API Key applied to settings object:', result.apiKey);
+        }
 
-      if (result.settings) { // These are other settings like bio, tone, etc.
-        updatedAppSettings = { ...updatedAppSettings, ...result.settings };
-        console.log('[State.js] loadDataFromStorage: Other settings merged:', result.settings);
-      }
-      newStateUpdate.settings = updatedAppSettings;
+        // Directly apply top-level settings if they exist in the result
+        if (result.profileBio !== undefined) {
+          updatedAppSettings.profileBio = result.profileBio;
+          console.log('[State.js] loadDataFromStorage: profileBio applied:', result.profileBio);
+        }
+        if (result.hashtags !== undefined) {
+          updatedAppSettings.hashtags = result.hashtags;
+          console.log('[State.js] loadDataFromStorage: hashtags applied:', result.hashtags);
+        }
+        if (result.tone !== undefined) { // In bg.js, it's 'tone'. In Settings.js form, it's 'defaultTone'.
+          updatedAppSettings.defaultTone = result.tone; // Map 'tone' from storage to 'defaultTone' in UI state
+          console.log('[State.js] loadDataFromStorage: tone (as defaultTone) applied:', result.tone);
+        }
+        if (result.useOwnKey !== undefined) {
+          updatedAppSettings.useOwnKey = result.useOwnKey;
+          console.log('[State.js] loadDataFromStorage: useOwnKey applied:', result.useOwnKey);
+        }
 
-      if (result.isPremium !== undefined) {
-        newStateUpdate.isPremium = result.isPremium;
+        // If there's still a general 'settings' object from storage, merge it carefully.
+        // This handles any other settings that might be stored under that nested object.
+        // Properties explicitly loaded above will take precedence if they were also in result.settings.
+        if (result.settings) { 
+          console.log('[State.js] loadDataFromStorage: Merging legacy/general settings object:', result.settings);
+          updatedAppSettings = { ...updatedAppSettings, ...result.settings }; 
+        }
+        newStateUpdate.settings = updatedAppSettings;
+
+        if (result.isPremium !== undefined) {
+          newStateUpdate.isPremium = result.isPremium;
+        }
+        
+        updateState(newStateUpdate);
+        resolve();
       }
-      
-      updateState(newStateUpdate);
-      resolve();
-    });
+    );
   });
 }
