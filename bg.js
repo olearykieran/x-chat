@@ -234,10 +234,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Continue without samples
         }
 
-        // Construct prompt with enhanced instructions
+        // Construct prompt with enhanced instructions and questions generation
         const postSeparator = '###POST_SEPARATOR###';
+        const questionSeparator = '###QUESTIONS_SEPARATOR###';
         const prompt = `
-        Generate 5 distinct reply suggestions to the following tweet by ${tweetData.tweetAuthorHandle || 'the author'}:
+        Generate 5 distinct reply suggestions and 3 contextual guiding questions for the following tweet by ${tweetData.tweetAuthorHandle || 'the author'}:
 
         "${tweetData.tweetText}"
 
@@ -247,7 +248,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           `IMPORTANT - Match the style, tone, and vocabulary of these writing samples:
           ${writingSamples.map((sample, i) => `Sample ${i+1}: "${sample}"`).join('\n')}` : ''}
         
-        STRICT REQUIREMENTS:
+        STRICT REQUIREMENTS FOR REPLIES:
         1. Create 5 COMPLETELY DIFFERENT replies that match the user's writing style
         2. Each reply must have a distinct angle or approach
         3. DO NOT use ANY hyphens (- or --) in ANY of the replies - this is very important
@@ -256,23 +257,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         6. Format each reply separated by "${postSeparator}"
         7. Tone should be: ${tone || 'neutral'}
         ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ''}
+        
+        AFTER THE REPLIES, INCLUDE "${questionSeparator}" FOLLOWED BY 3 CONTEXTUAL GUIDING QUESTIONS:
+        1. Create 3 thought-provoking questions that directly relate to the specific content of the tweet
+        2. These questions should help the user formulate their own thoughtful response
+        3. Make questions specific to the topic, events, people, or opinions mentioned in the tweet
+        4. Avoid generic questions - they must clearly relate to this specific tweet's content
+        5. Format: Question 1, then Question 2, then Question 3, each on its own line
         `;
         
         try {
           const response = await callOpenAI(userSettings.apiKey, prompt, tone, userInstruction, userSettings.profileBio, userWritingSamples, userSettings.likedTweets);
           
-          // Process the response to get 5 distinct replies
-          const replies = processAIResponse(response, postSeparator);
+          // Process the response to get replies and contextual questions
+          const processedResponse = processAIResponse(response, postSeparator, questionSeparator);
           
           // Ensure no hyphens in the final replies as a fallback
-          const cleanedReplies = replies.map(reply => removeHyphens(reply));
+          const cleanedReplies = processedResponse.replies.map(reply => removeHyphens(reply));
           
-          // Send each reply as a separate message
+          // Format the response with replies and questions
           const formattedResponse = {
             allReplies: cleanedReplies,
-            reply: cleanedReplies[0] // For backward compatibility
+            reply: cleanedReplies[0], // For backward compatibility
+            guidingQuestions: processedResponse.questions // Add the contextual questions
           };
           
+          console.log('[Background] Processed response with contextual questions:', formattedResponse);
           sendResponse(formattedResponse);
         } catch (error) {
           console.error('[Background] Error generating reply:', error);
@@ -515,26 +525,75 @@ async function transcribeAudioWithOpenAI(audioBlob, apiKey) {
   }
 }
 
-// Process the AI response to extract multiple reply suggestions
-function processAIResponse(response, separator) {
+// Process the AI response to extract multiple reply suggestions and contextual questions
+function processAIResponse(response, replySeparator, questionSeparator) {
   if (!response) {
-    return ['Sorry, I couldn\'t generate a reply.'];
+    return { 
+      replies: ['Sorry, I couldn\'t generate a reply.'],
+      questions: [
+        "What points would you like to make about this tweet?",
+        "How do you personally feel about the content of this tweet?",
+        "Is there a specific aspect of the tweet you want to respond to?"
+      ]
+    };
   }
   
-  // If the response contains the separator, split by it
-  if (response.includes(separator)) {
-    const replies = response.split(separator)
-      .map(reply => reply.trim())
-      .filter(reply => reply.length > 0); // Filter out empty strings
+  // Initialize default result
+  const result = {
+    replies: [],
+    questions: [
+      "What points would you like to make about this tweet?",
+      "How do you personally feel about the content of this tweet?",
+      "Is there a specific aspect of the tweet you want to respond to?"
+    ]
+  };
+
+  // Extract contextual questions if they exist
+  if (response.includes(questionSeparator)) {
+    const [repliesSection, questionsSection] = response.split(questionSeparator);
     
-    // If we got viable replies, return them (up to 5)
-    if (replies.length > 0) {
-      return replies.slice(0, 5);
+    // Process replies from the first section
+    if (repliesSection && repliesSection.includes(replySeparator)) {
+      const replies = repliesSection.split(replySeparator)
+        .map(reply => reply.trim())
+        .filter(reply => reply.length > 0);
+      
+      if (replies.length > 0) {
+        result.replies = replies.slice(0, 5);
+      }
+    } else if (repliesSection && repliesSection.trim()) {
+      // If no separator but we have content, use it as a single reply
+      result.replies = [repliesSection.trim()];
+    }
+    
+    // Process questions from the second section
+    if (questionsSection && questionsSection.trim()) {
+      // Split questions by line breaks and filter empty ones
+      const questions = questionsSection.split('\n')
+        .map(q => q.trim())
+        .filter(q => q.length > 0);
+      
+      if (questions.length > 0) {
+        result.questions = questions.slice(0, 3);
+      }
+    }
+  } else {
+    // No question separator, just process replies
+    if (response.includes(replySeparator)) {
+      const replies = response.split(replySeparator)
+        .map(reply => reply.trim())
+        .filter(reply => reply.length > 0);
+      
+      if (replies.length > 0) {
+        result.replies = replies.slice(0, 5);
+      }
+    } else if (response.trim()) {
+      // If no separator but we have content, use it as a single reply
+      result.replies = [response.trim()];
     }
   }
   
-  // If no separator or no valid replies after splitting, return the whole response as one reply
-  return [response];
+  return result;
 }
 
 // Remove hyphens from text (fallback safety measure)

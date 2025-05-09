@@ -19,7 +19,9 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
   
   const tweetAuthor = document.createElement('div');
   tweetAuthor.className = 'tweet-author';
-  tweetAuthor.textContent = `@${tweet.tweetAuthorHandle || 'author'}`;
+  // Remove @ symbol if it's already in the handle
+  const authorHandle = tweet.tweetAuthorHandle || 'author';
+  tweetAuthor.textContent = authorHandle.startsWith('@') ? authorHandle : `@${authorHandle}`;
   
   const tweetText = document.createElement('div');
   tweetText.className = 'tweet-text';
@@ -141,12 +143,21 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
   questionsDescription.textContent = 'Consider these questions to help formulate your own reply:';
   guidingQuestionsContainer.appendChild(questionsDescription);
   
-  // Add the three guiding questions
-  const questions = [
-    "What's the main point you want to make in your reply?",
-    "How can you add your unique perspective or a personal touch?",
-    "Is there a specific emotion (e.g., agreement, curiosity, humor) you want to convey?"
+  // Get contextual guiding questions if available, otherwise use defaults
+  let questions = [
+    "What points would you like to make about this tweet?",
+    "How do you personally feel about the content of this tweet?",
+    "Is there a specific aspect of the tweet you want to respond to?"
   ];
+  
+  // Check if we have contextual questions from the AI
+  if (aiMessages.length > 0) {
+    const latestAIMessage = aiMessages[aiMessages.length - 1];
+    if (latestAIMessage.guidingQuestions && Array.isArray(latestAIMessage.guidingQuestions) && 
+        latestAIMessage.guidingQuestions.length > 0) {
+      questions = latestAIMessage.guidingQuestions.slice(0, 3);
+    }
+  }
   
   const questionsList = document.createElement('ul');
   questionsList.className = 'questions-list';

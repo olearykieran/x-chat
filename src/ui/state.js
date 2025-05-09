@@ -248,12 +248,14 @@ function generateReply() {
     } else {
       // Handle multiple suggestions if available
       if (response.allReplies && Array.isArray(response.allReplies) && response.allReplies.length > 0) {
-        // Create an AI message with all replies
+        // Create an AI message with all replies and guiding questions
         const aiMessage = {
           sender: 'ai',
           text: response.allReplies[0], // Use first suggestion as the primary text
-          allReplies: response.allReplies // Store all replies for the UI to access
+          allReplies: response.allReplies, // Store all replies for the UI to access
+          guidingQuestions: response.guidingQuestions || [] // Store contextual guiding questions
         };
+        console.log('[Sidepanel State] Generated AI message with guiding questions:', aiMessage);
         updateState({ 
           messages: [...userMessages, aiMessage],
           loading: false 
