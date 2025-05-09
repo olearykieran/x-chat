@@ -132,6 +132,7 @@ function render() {
     onToneChange: changeTone,
     onMicClick: handleMicClick,
     isRecording: state.isRecording,
+    activeTab: state.activeTab, // Pass current active tab to control input field behavior
   });
   root.appendChild(inputArea);
 

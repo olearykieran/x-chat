@@ -194,6 +194,95 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  // Handle USE_TWEET message to insert text into Twitter's compose box
+  if (request.type === 'USE_TWEET') {
+    console.log('[XCO-Poster] USE_TWEET request received with text:', request.text);
+    try {
+      // Find and click the compose tweet button if the compose box isn't already open
+      const composeButton = document.querySelector('a[data-testid="SideNav_NewTweet_Button"]');
+      
+      if (composeButton) {
+        console.log('[XCO-Poster] Found compose button, clicking it');
+        composeButton.click();
+        
+        // Wait for the compose textarea to appear
+        setTimeout(() => {
+          // The compose textarea typically has data-testid="tweetTextarea_0"
+          const composeTextarea = document.querySelector('[data-testid="tweetTextarea_0"]');
+          
+          if (composeTextarea) {
+            console.log('[XCO-Poster] Found compose textarea, inserting text');
+            
+            // Focus the textarea
+            composeTextarea.focus();
+            
+            // Set the text content
+            composeTextarea.textContent = request.text;
+            
+            // Dispatch input event to ensure X recognizes the change
+            const inputEvent = new Event('input', { bubbles: true });
+            composeTextarea.dispatchEvent(inputEvent);
+            
+            // Send success response
+            sendResponse({ success: true });
+          } else {
+            // If we couldn't find the compose textarea, try another approach
+            // This might be the case if user has already focused an input box or if the UI structure is different
+            const anyActiveTextarea = document.activeElement;
+            if (anyActiveTextarea && anyActiveTextarea.tagName === 'DIV' && 
+                (anyActiveTextarea.getAttribute('role') === 'textbox' || 
+                 anyActiveTextarea.contentEditable === 'true')) {
+              
+              console.log('[XCO-Poster] Found active editable element, inserting text');
+              
+              // Set the text content
+              anyActiveTextarea.textContent = request.text;
+              
+              // Dispatch input event to ensure X recognizes the change
+              const inputEvent = new Event('input', { bubbles: true });
+              anyActiveTextarea.dispatchEvent(inputEvent);
+              
+              // Send success response
+              sendResponse({ success: true });
+            } else {
+              console.error('[XCO-Poster] Could not find any suitable text input');
+              sendResponse({ error: 'Could not find compose box' });
+            }
+          }
+        }, 500); // Give it time for the compose box to appear
+        
+        return true; // For async response
+      } else {
+        // If no compose button, try to find an already open compose box
+        const composeTextarea = document.querySelector('[data-testid="tweetTextarea_0"]');
+        
+        if (composeTextarea) {
+          console.log('[XCO-Poster] Found compose textarea without clicking button, inserting text');
+          
+          // Focus the textarea
+          composeTextarea.focus();
+          
+          // Set the text content
+          composeTextarea.textContent = request.text;
+          
+          // Dispatch input event to ensure X recognizes the change
+          const inputEvent = new Event('input', { bubbles: true });
+          composeTextarea.dispatchEvent(inputEvent);
+          
+          // Send success response
+          sendResponse({ success: true });
+        } else {
+          console.error('[XCO-Poster] Could not find compose button or textarea');
+          sendResponse({ error: 'Could not find compose controls' });
+        }
+      }
+    } catch (error) {
+      console.error('[XCO-Poster] Error in USE_TWEET handler:', error);
+      sendResponse({ error: `Error inserting tweet: ${error.message}` });
+    }
+    return true;
+  }
+  
   // NEW: Auto-select first post when reply tab is active
   if (request.type === 'GET_CURRENT_TWEET') {
     console.log('[XCO-Poster] GET_CURRENT_TWEET request received');

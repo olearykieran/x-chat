@@ -83,7 +83,31 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       const useButton = document.createElement('button');
       useButton.className = 'message-button';
       useButton.textContent = 'Use Reply';
-      useButton.addEventListener('click', () => onUseReply(cleanedReply)); // Use the cleaned reply text
+      useButton.addEventListener('click', () => {
+        console.log('[ReplyTab] Use Reply button clicked with text:', cleanedReply);
+        // Direct implementation to avoid dependency on state
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]) {
+            console.log('[ReplyTab] Sending USE_REPLY message directly to tab:', tabs[0].id);
+            chrome.tabs.sendMessage(tabs[0].id, { 
+              type: 'USE_REPLY',
+              text: cleanedReply
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('[ReplyTab] Error sending message:', chrome.runtime.lastError);
+              } else {
+                console.log('[ReplyTab] Response from content script:', response);
+              }
+            });
+          } else {
+            console.error('[ReplyTab] No active tab found');
+          }
+        });
+        // Still call the original handler in case there's other functionality there
+        if (typeof onUseReply === 'function') {
+          onUseReply(cleanedReply);
+        }
+      }); // More robust implementation
       
       const copyButton = document.createElement('button');
       copyButton.className = 'message-button';

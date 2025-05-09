@@ -331,13 +331,27 @@ export function sendMessage(text) {
 export function useText(text) {
   if (!text) return;
   
+  console.log('[State] useText called with:', text);
+  console.log('[State] Current active tab:', currentState.activeTab);
+  
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs[0]) {
       const messageType = currentState.activeTab === 'reply' ? 'USE_REPLY' : 'USE_TWEET';
+      console.log('[State] Sending message type:', messageType);
+      
       chrome.tabs.sendMessage(tabs[0].id, { 
         type: messageType,
         text
+      }, (response) => {
+        // Check for errors in message sending
+        if (chrome.runtime.lastError) {
+          console.error('[State] Error sending message to content script:', chrome.runtime.lastError);
+        } else {
+          console.log('[State] Response from content script:', response);
+        }
       });
+    } else {
+      console.error('[State] No active tab found');
     }
   });
 }
