@@ -167,8 +167,9 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
     .suggestions-container, .guiding-questions-container {
       margin-top: 16px;
       padding: 12px;
-      border-radius: 8px;
-      background-color: #15202b;
+      border-radius: var(--border-radius);
+      background-color: var(--hover-color);
+      border: 1px solid var(--border-color);
     }
     
     .suggestions-title, .questions-title {
@@ -181,8 +182,9 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
     .suggestion-card {
       margin-bottom: 12px;
       padding: 12px;
-      border-radius: 8px;
-      background-color: #192734;
+      border-radius: var(--border-radius);
+      background-color: var(--hover-color);
+      border: 1px solid var(--border-color);
       position: relative;
     }
     
@@ -193,8 +195,8 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background-color: #1da1f2;
-      color: white;
+      background-color: var(--border-color);
+      color: var(--text-color);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -209,6 +211,29 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       line-height: 1.4;
     }
     
+    /* Style for message actions and buttons */
+    .message-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: 26px;
+    }
+    
+    .message-button {
+      background-color: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius-sm);
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: var(--transition);
+    }
+    
+    .message-button:hover {
+      background-color: var(--hover-color);
+    }
+    
     .regenerate-container {
       display: flex;
       justify-content: center;
@@ -216,18 +241,18 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
     }
     
     .regenerate-button {
-      background-color: #192734;
-      color: #1da1f2;
-      border: 1px solid #1da1f2;
+      background-color: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
       border-radius: 20px;
       padding: 8px 16px;
       cursor: pointer;
       font-weight: 600;
-      transition: background-color 0.2s;
+      transition: var(--transition);
     }
     
     .regenerate-button:hover {
-      background-color: rgba(29, 161, 242, 0.1);
+      background-color: var(--hover-color);
     }
     
     .questions-description {
