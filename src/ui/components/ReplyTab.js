@@ -69,7 +69,11 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       // Suggestion text
       const suggestionText = document.createElement('div');
       suggestionText.className = 'suggestion-text';
-      suggestionText.textContent = reply;
+      
+      // Final cleanup of any hyphens/dashes that might have slipped through all the way to UI
+      let cleanedReply = reply.replace(/[-\u2013\u2014]/g, ' ').replace(/\s+/g, ' '); 
+      
+      suggestionText.textContent = cleanedReply;
       suggestionCard.appendChild(suggestionText);
       
       // Actions for this suggestion
@@ -79,13 +83,13 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       const useButton = document.createElement('button');
       useButton.className = 'message-button';
       useButton.textContent = 'Use Reply';
-      useButton.addEventListener('click', () => onUseReply(reply));
+      useButton.addEventListener('click', () => onUseReply(cleanedReply)); // Use the cleaned reply text
       
       const copyButton = document.createElement('button');
       copyButton.className = 'message-button';
       copyButton.textContent = 'Copy';
       copyButton.addEventListener('click', () => {
-        navigator.clipboard.writeText(reply);
+        navigator.clipboard.writeText(cleanedReply); // Use the cleaned reply text
         
         // Show copied indicator
         copyButton.textContent = 'Copied!';
@@ -101,24 +105,7 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
       suggestionsContainer.appendChild(suggestionCard);
     });
     
-    // Add regenerate button for all suggestions
-    const regenerateContainer = document.createElement('div');
-    regenerateContainer.className = 'regenerate-container';
-    
-    const regenerateButton = document.createElement('button');
-    regenerateButton.className = 'regenerate-button';
-    regenerateButton.innerHTML = ' Regenerate All Suggestions';
-    regenerateButton.addEventListener('click', () => {
-      if (typeof onRegenerateReply === 'function') {
-        console.log('[ReplyTab] Regenerate button clicked for tweet:', tweet);
-        onRegenerateReply(tweet); 
-      } else {
-        console.error('[ReplyTab] onRegenerateReply is not a function or not provided. Cannot regenerate.');
-      }
-    });
-    
-    regenerateContainer.appendChild(regenerateButton);
-    suggestionsContainer.appendChild(regenerateContainer);
+    // Regenerate button removed - was causing infinite loading issues
   } else {
     // If there are messages but none from AI
     const noSuggestions = document.createElement('div');
@@ -165,7 +152,19 @@ export function renderReplyTab({ tweet, messages, onUseReply, onRegenerateReply 
   questions.forEach(question => {
     const questionItem = document.createElement('li');
     questionItem.className = 'question-item';
-    questionItem.textContent = question;
+    
+    // Clean up any formatting tags or markdown that might be in the question text
+    let cleanedQuestion = question;
+    // Remove any markdown headers like ###Question X: 
+    cleanedQuestion = cleanedQuestion.replace(/^###\s*Question\s*\d+:?\s*/i, '');
+    // Also remove Question X: format without the markdown
+    cleanedQuestion = cleanedQuestion.replace(/^Question\s*\d+:?\s*/i, '');
+    // Remove any other markdown formatting or tags
+    cleanedQuestion = cleanedQuestion.replace(/#+/g, '');
+    // Remove any extra spaces and trim
+    cleanedQuestion = cleanedQuestion.trim();
+    
+    questionItem.textContent = cleanedQuestion;
     questionsList.appendChild(questionItem);
   });
   

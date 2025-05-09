@@ -355,24 +355,25 @@ function handleRegenerateReply(tweet) {
       type: "GENERATE_REPLY", // Using the same message type as expected by bg.js
       tweetData: tweet, // Pass the entire tweet object as expected by bg.js
       tone: getState().selectedTone, // Pass the selected tone
+      forceRegenerate: true, // Flag to force a regeneration even if previous replies exist
     },
     (response) => {
       if (chrome.runtime.lastError) {
         console.error(
-          "[App.js] Error sending GENERATE_AI_REPLY message:",
+          "[App.js] Error sending GENERATE_REPLY message:",
           chrome.runtime.lastError.message
         );
         // Potentially update UI with error
         return;
       }
       if (response && response.error) {
-        console.error("[App.js] Error from GENERATE_AI_REPLY handler:", response.error);
+        console.error("[App.js] Error from GENERATE_REPLY handler:", response.error);
         // Potentially update UI with error
       }
       // Successful response handling (new reply) should update the state,
       // which will trigger a re-render through the subscription.
       // So, no direct UI update here, rely on state change.
-      console.log("[App.js] GENERATE_AI_REPLY message sent. Response:", response);
+      console.log("[App.js] GENERATE_REPLY message sent. Response:", response);
     }
   );
 }

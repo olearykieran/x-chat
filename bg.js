@@ -940,8 +940,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: `Error polishing transcript: ${error.message}` });
       }
     } else if (message.type === "GENERATE_REPLY") {
-      const { tweetData, tone, userInstruction } = message; // Assuming data and userInstruction
-      console.log("[Background] Generating reply for tweet:", tweetData);
+      const { tweetData, tone, userInstruction, forceRegenerate } = message; // Extract all needed params, including forceRegenerate flag
+      console.log("[Background] Generating reply for tweet:", tweetData, forceRegenerate ? "(forced regeneration)" : "");
 
       if (!tweetData || !tweetData.tweetText) {
         sendResponse({ error: "Invalid tweet data. Cannot generate reply." });
@@ -963,8 +963,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Construct prompt with enhanced instructions and questions generation
       const postSeparator = "###POST_SEPARATOR###";
       const questionSeparator = "###QUESTIONS_SEPARATOR###";
+      // If forceRegenerate is true, add a randomness factor to ensure different results
+      const randomPrompt = forceRegenerate ? `Regeneration request #${Math.floor(Math.random() * 10000)}. ` : "";
+      
       const prompt = `
-        Generate 5 distinct reply suggestions and 3 contextual guiding questions for the following tweet by ${
+        ${randomPrompt}Generate 5 distinct reply suggestions and 3 contextual guiding questions for the following tweet by ${
           tweetData.tweetAuthorHandle || "the author"
         }:
 
@@ -1013,7 +1016,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         2.  These questions should help the user formulate their own thoughtful response
         3.  Make questions specific to the topic, events, people, or opinions mentioned in the tweet
         4.  Avoid generic questions - they must clearly relate to this specific tweet's content
-        5.  Format: Question 1, then Question 2, then Question 3, each on its own line
+        5.  Format each question EXACTLY like this: "Question 1: [Your question here]" on its own line
+        6.  ENSURE all three questions are properly labeled with 'Question X:' at the start
         `;
 
       try {
@@ -1055,26 +1059,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.error("[Background] Error generating reply:", error);
         sendResponse({ error: `Error generating reply: ${error.message}` });
       }
-    } else if (message.type === "GENERATE_AI_REPLY") {
-      const { data, tone, userInstruction } = message; // Assuming data and userInstruction
-      // ... (prompt construction as in the diff) ...
-      let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${
-        userSettings.profileBio || "a generally helpful and friendly tech enthusiast"
-      }".\nThe reply should be ${getTonePrompt(tone)}.\nOriginal tweet to reply to by @${
-        data.tweetAuthorHandle
-      }: "${data.tweetText}"\n`;
-      // Add userWritingSamples and userInstruction to prompt if they exist...
-      console.log("[Background] FINAL PROMPT for generateReply:", prompt);
-      const reply = await callOpenAI(
-        userSettings.apiKey,
-        prompt,
-        tone,
-        userInstruction,
-        userSettings.profileBio,
-        userSettings.userPosts,
-        userSettings.likedTweets /*, systemMessage if needed for this call*/
-      );
-      sendResponse({ type: "AI_REPLY_GENERATED", reply });
+    // GENERATE_AI_REPLY message type has been completely removed since we're now using the improved GENERATE_REPLY flow consistently
     } else if (message.type === "GENERATE_TWEET_IDEAS") {
       const { trending, tone, userInstruction } = message;
       // ... (prompt construction as in the diff, using topicsForIdeas) ...
@@ -1184,31 +1169,36 @@ async function generateReply(tweetData, tone = "neutral") {
   const { tweetText, tweetAuthorHandle, userInstruction } = tweetData;
   const tonePrompt = getTonePrompt(tone);
 
-  let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words). Their general writing style is described as: "${
+  let prompt = `A user wants help drafting a concise, engaging Twitter reply (≤40 words) that DIRECTLY responds to another person's tweet. Their general writing style is described as: "${
     userSettings.profileBio || "a generally helpful and friendly tech enthusiast"
   }".
   The reply should be ${tonePrompt}.
   Original tweet to reply to by @${tweetAuthorHandle}: "${tweetText}"
   `;
 
+  // Add liked topics if available to better understand user preferences
+  if (userSettings.likedTopics && userSettings.likedTopics.length > 0) {
+    prompt += `The user is interested in these topics: ${userSettings.likedTopics.join(', ')}\n`;
+  }
+
   if (userWritingSamples && userWritingSamples.length > 0) {
-    prompt += `Here are examples of how the user typically writes. Strive to match this style, tone, and vocabulary PRECISELY:\n`;
+    prompt += `Here are examples of how the user typically writes. YOU MUST MATCH this style, tone, vocabulary, and sentence structure PRECISELY:\n`;
     userWritingSamples.slice(0, 5).forEach((sample, index) => {
       // Use up to 5 samples
       prompt += `Example ${index + 1}: "${sample}"\n`;
     });
-    prompt += `The user's reply should sound like it came directly from them, based on these examples and their profile bio.\n`;
+    prompt += `The user's reply MUST sound exactly like it came directly from them, based on these examples and their profile bio.\n`;
   } else {
     prompt += `(No specific writing samples provided, rely on the profile bio for style.)\n`;
   }
 
   if (userReplies && userReplies.length > 0) {
-    prompt += `The user's recent replies also show their style:\n`;
+    prompt += `The user's recent replies show their EXACT style of responding. These are CRITICAL for matching their voice:\n`;
     userReplies.slice(0, 5).forEach((reply, index) => {
       // Use up to 5 recent replies
       prompt += `Reply Example ${index + 1}: "${reply}"\n`;
     });
-    prompt += `Match the tone and style of these recent replies as well.\n`;
+    prompt += `Pay special attention to these recent replies as they represent the user's most current writing style.\n`;
   }
 
   if (userInstruction) {
@@ -1216,19 +1206,32 @@ async function generateReply(tweetData, tone = "neutral") {
 `;
   }
 
-  prompt += `\nIMPORTANT STYLE GUIDELINES (unless contradicted by user's samples/bio):
-1.  Sound authentically human. Avoid overly robotic, formal, or excessively enthusiastic tones.
+  prompt += `\nABSOLUTELY CRITICAL STYLE REQUIREMENTS - YOU WILL BE PENALIZED FOR VIOLATIONS:
+1.  Sound authentically human and EXACTLY like the user would write based on their samples and bio.
 2.  Keep the reply concise and to the point, suitable for X.com (formerly Twitter).
-3.  AVOID using emojis unless the user's writing samples, bio, or specific instruction asks for them.
-4.  AVOID using hashtags unless they are clearly present in the user's writing samples, bio, or if the user explicitly asks for them for this specific reply. (Note: User's default hashtag list is currently ${
+3.  NO HYPHENS OR DASHES WHATSOEVER! DO NOT use any form of hyphen, dash, em dash, en dash (-, --, —, –) or similar punctuation under ANY circumstances. This is the MOST IMPORTANT rule and will be strictly enforced.
+4.  DO NOT use ANY form of AI-typical phrasing like "I understand", "I appreciate", "I'd be happy to", or "as you mentioned".
+5.  DO NOT use sentence transitions that the user doesn't use in their samples.
+6.  AVOID using emojis unless the user's writing samples, bio, or specific instruction explicitly includes them.
+7.  NO HASHTAGS of ANY kind unless they are clearly present in multiple user samples or the user explicitly requests them. (Note: User's default hashtag list is currently ${
     userSettings.hashtags && userSettings.hashtags.length > 0
       ? userSettings.hashtags.join(", ")
       : "empty"
   }).
-5.  AVOID using double dashes ('--') for emphasis or as sentence connectors unless present in user's samples/bio.
-6.  Focus on clarity and natural language.
+8.  MATCH the user's typical sentence length, punctuation style, and capitalization patterns exactly.
+9.  If the user's style is casual, be casual. If formal, be formal. If they use slang, use similar slang.
+10. Use simple punctuation like periods and commas. Avoid semicolons, colons, or parentheses unless the user frequently uses them.
+11. Focus on clarity and natural language that precisely mirrors the user's authentic voice.
 
-Draft the reply now:`;
+CRITICAL REPLY REQUIREMENTS:
+1.  This MUST be a DIRECT REPLY to the specific tweet content above, not a new standalone post.
+2.  The reply should explicitly acknowledge or address what @${tweetAuthorHandle} said in their tweet.
+3.  DO NOT create a new post that just uses the original tweet as context or inspiration.
+4.  DO NOT simply comment on the topic of the original tweet without actually responding to it.
+5.  Make it clear from your wording that this is a reply to the specific points in the original tweet.
+6.  The reply should make sense ONLY in the context of responding to the original tweet.
+
+Draft the reply now as if you ARE the user writing it themselves in direct response to @${tweetAuthorHandle}'s tweet:`;
 
   console.log("[Background] FINAL PROMPT for generateReply:", prompt);
   console.log(
@@ -1469,7 +1472,11 @@ function processAIResponse(response, replySeparator, questionSeparator) {
   // Extract contextual questions if they exist
   if (response.includes(questionSeparator)) {
     console.log("[Background] Found question separator in response");
-    const [repliesSection, questionsSection] = response.split(questionSeparator);
+    // Split by questionSeparator - this handles cases where there might be multiple
+    const parts = response.split(questionSeparator);
+    const repliesSection = parts[0]; // First part is always replies
+    // Concatenate all remaining parts for questions (in case there are multiple separators)
+    const questionsSection = parts.slice(1).join("\n").trim();
 
     // Process replies from the first section
     if (repliesSection && repliesSection.includes(replySeparator)) {
@@ -1495,23 +1502,55 @@ function processAIResponse(response, replySeparator, questionSeparator) {
       if (
         questionsSection.includes("Question 1:") ||
         questionsSection.includes("Question 2:") ||
-        questionsSection.includes("Question 3:")
+        questionsSection.includes("Question 3:") ||
+        questionsSection.match(/Question\s+\d+:/i)
       ) {
-        // Extract questions with prefixes
-        const questionPattern = /Question \d+:\s*([^\n]+)/g;
-        const matches = questionsSection.matchAll(questionPattern);
+        console.log("[Background] Found 'Question X:' formatted questions");
+        // Extract questions with prefixes - improved pattern matching
+        const questionPattern = /Question\s*\d+:?\s*([^\n]+)/gi;
+        const matches = Array.from(questionsSection.matchAll(questionPattern));
 
+        console.log("[Background] Found question matches:", matches.length);
+        
         for (const match of matches) {
           if (match[1] && match[1].trim()) {
             questions.push(match[1].trim());
           }
         }
       } else {
+        // From looking at the API responses, we need to handle multiple formats
+        // Check for Question X formats after QUESTIONS_SEPARATOR
+        if (questionsSection.match(/Question \d/i) || questionsSection.match(/###Question \d/i)) {
+          // Extract questions by looking for Question pattern
+          const questionPattern = /(?:###)?Question \d(?:###)?[^\S\r\n]*(.+?)(?=(?:###Question|$))/gis;
+          const matches = [...questionsSection.matchAll(questionPattern)];
+          
+          if (matches && matches.length > 0) {
+            for (const match of matches) {
+              if (match[1] && match[1].trim()) {
+                questions.push(match[1].trim());
+              }
+            }
+          }
+        } 
+        // Handle cases with multiple QUESTIONS_SEPARATOR markers
+        else if (questionsSection.includes("QUESTIONS_SEPARATOR")) {
+          // Split by the QUESTIONS_SEPARATOR marker
+          const parts = questionsSection.split("QUESTIONS_SEPARATOR");
+          for (const part of parts) {
+            const clean = part.trim();
+            if (clean && clean.length > 0 && clean.length < 200) {
+              questions.push(clean);
+            }
+          }
+        } 
         // Standard processing - split by line breaks
-        questions = questionsSection
-          .split("\n")
-          .map((q) => q.trim())
-          .filter((q) => q.length > 0 && q.length < 200); // Avoid extremely long lines
+        else {
+          questions = questionsSection
+            .split("\n")
+            .map((q) => q.trim())
+            .filter((q) => q.length > 0 && q.length < 200); // Avoid extremely long lines
+        }
       }
 
       console.log("[Background] Extracted questions:", questions);
