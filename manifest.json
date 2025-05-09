@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X-Chat",
-  "version": "1.0.0",
+  "version": "1.0.12",
   "description": "AI chat panel for X.com that helps you craft replies and original posts",
   "icons": {
     "16": "icons/icon16.png",

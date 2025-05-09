@@ -1021,39 +1021,406 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         `;
 
       try {
-        const response = await callOpenAI(
-          userSettings.apiKey,
-          prompt,
-          tone,
-          userInstruction,
-          userSettings.profileBio,
-          userSettings.userPosts,
-          userSettings.likedTweets
-        );
+        // First, use our enhanced generateReply function for the main reply
+        console.log("[Background] Calling improved generateReply function for primary response");
+        const mainReply = await generateReply(tweetData, tone || "neutral", userInstruction);
+        console.log("[Background] Generated primary reply:", mainReply);
+        
+        // Create variations based on the main reply
+        const variationPrompt = `
+          Based on this tweet reply: "${mainReply}"
+          
+          Generate 5 short, authentic Twitter-style variations I can use to reply. These MUST sound like tweets from a real tech enthusiast who codes.
+          
+          CRITICAL REQUIREMENTS:
+          - Each reply MUST be under 25 words and only 1 sentence
+          - EXTREMELY casual, conversational tone
+          - Replies should feel like they were written by a real developer
+          - Use personal, direct language ("I", "you", etc.)
+          - ZERO AI-sounding phrasing or formal language
+          - ALWAYS directly acknowledge the specific content of the original tweet
+          - NO generic responses that could apply to any tweet
+          - NO dashes/hyphens of any kind
+          - ABSOLUTELY NO "I understand" or "I appreciate" phrases
+          - Format each as a simple plain text paragraph
+          - Return EXACTLY 5 variations numbered 1-5
+        `;
+        
+        // Generate reply variations using the API
+        const variationsResponse = await callOpenAI(userSettings.apiKey, variationPrompt);
+        let variations = [];
+        
+        if (variationsResponse) {
+          console.log("[Background] Raw variations response:", variationsResponse);
+          
+          // ADVANCED VARIATION EXTRACTION
+          // If the API returns variations in a single block, we need to intelligently segment it
+          
+          // First, try to identify individual replies by common patterns
+          const forcedVariations = [];
+          
+          // First, ensure we always have the main reply
+          forcedVariations.push(mainReply);
+          
+          // Try to extract individual complete thoughts
+          // Start with sentences as potential independent replies
+          const sentenceMatches = variationsResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
+          let cleanedSentences = sentenceMatches
+            .map(s => s.trim())
+            .filter(s => s.length >= 10 && s.length <= 280);
+            
+          // Get unique sentences only
+          cleanedSentences = [...new Set(cleanedSentences)];
+          
+          // If we have multiple short sentences, add them as variations
+          for (let i = 0; i < cleanedSentences.length && forcedVariations.length < 4; i++) {
+            // Only add if it's different from the main reply and other variations
+            if (!forcedVariations.some(v => 
+                v.toLowerCase().includes(cleanedSentences[i].toLowerCase()) || 
+                cleanedSentences[i].toLowerCase().includes(v.toLowerCase()))) {
+              forcedVariations.push(cleanedSentences[i]);
+            }
+          }
+          
+          // If we still need more variations, try a different approach - character counts
+          if (forcedVariations.length < 4) {
+            // Try to intelligently find break points in the text (e.g., 30-40 words per reply)
+            const words = variationsResponse.split(/\s+/);
+            let currentVariation = [];
+            let variationCount = 0;
+            
+            for (let i = 0; i < words.length && forcedVariations.length < 4; i++) {
+              currentVariation.push(words[i]);
+              
+              // Check if we have a reasonable variation size (about 30-40 words)
+              if (currentVariation.length >= 12 || 
+                  (currentVariation.length >= 8 && 
+                   (words[i].endsWith('.') || words[i].endsWith('?') || words[i].endsWith('!')))) {
+                
+                const newVariation = currentVariation.join(' ');
+                
+                // Check if this variation is unique enough
+                if (!forcedVariations.some(v => 
+                    v.toLowerCase().includes(newVariation.toLowerCase()) || 
+                    newVariation.toLowerCase().includes(v.toLowerCase()))) {
+                  forcedVariations.push(newVariation);
+                  currentVariation = [];
+                  variationCount++;
+                }
+              }
+            }
+            
+            // If we have remaining words that haven't formed a variation, add them
+            if (currentVariation.length > 5 && forcedVariations.length < 4) {
+              const lastVariation = currentVariation.join(' ');
+              forcedVariations.push(lastVariation);
+            }
+          }
+          
+          try {
+            // Handle numerical splitting with post separators (OpenAI's formatting)
+            const postSeparatorPattern = /###POST_SEPARATOR###/g;
+            if (variationsResponse.includes('###POST_SEPARATOR###')) {
+              console.log("[Background] Detected POST_SEPARATOR format, properly splitting");
+              const separatedVariations = variationsResponse.split(/###POST_SEPARATOR###/g);
+              if (separatedVariations.length >= 3) {
+                // Clean up each variation, removing all numbering and other artifacts
+                variations = separatedVariations
+                  .map(v => {
+                    // Start with trimming whitespace
+                    let cleaned = v.trim();
+                    // Remove any numbering like "1. " at the start
+                    cleaned = cleaned.replace(/^\s*\d+\s*\.\s*/, '');
+                    // Remove any trailing numbers that might have leaked in
+                    cleaned = cleaned.replace(/\s+\d+\.\s*$/g, '');
+                    // Remove any remaining post separator tags
+                    cleaned = cleaned.replace(/###POST_SEPARATOR###/g, '');
+                    // Final trim to clean up any leftover whitespace
+                    cleaned = cleaned.trim();
+                    return cleaned;
+                  })
+                  .filter(v => v.length > 0)
+                  .map(removeHyphens);
+              }
+            }
+          } catch (error) {
+            console.error("[Background] Error processing variations with separators:", error);
+            // Keep the variations as they are if processing fails
+          }
+          try {
+            // Detect if we have numbered variations (common format)
+            if (/^\s*\d+\.\s/m.test(variationsResponse)) {
+              console.log("[Background] Detected numbered format, extracting properly");
+              
+              // Method 1: Try to extract using advanced segmentation by looking for numbering
+              const variationPattern = /\s*\d+\.\s*(.*?)(?=\s*\d+\.\s*|$)/gs;
+              const extractedVariations = [];
+              let variationMatch;
+              
+              while ((variationMatch = variationPattern.exec(variationsResponse)) !== null) {
+                let extractedText = variationMatch[1].trim();
+                
+                // Additional cleaning to ensure we have no separators or trailing numbers
+                extractedText = extractedText.replace(/###POST_SEPARATOR###/g, '').trim();
+                // Remove any trailing numbers with periods that might have leaked in
+                extractedText = extractedText.replace(/\s+\d+\.\s*$/g, '').trim();
+                // Remove any numbering at the start that might have been missed
+                extractedText = extractedText.replace(/^\s*\d+\.\s*/g, '').trim();
+                
+                if (extractedText.length > 0) {
+                  extractedVariations.push(extractedText);
+                }
+              }
+              
+              // If we found at least 3 variations with the advanced pattern, use them
+              if (extractedVariations.length >= 3) {
+                console.log("[Background] Using advanced segmentation for variations");
+                // Start with the initial reply then add the extracted variations, deduplicate and limit to 5
+                const uniqueVariations = [variations[0], ...extractedVariations]
+                  .filter((v, i, arr) => arr.indexOf(v) === i) // Remove duplicates
+                  .slice(0, 5);
+                variations = uniqueVariations;
+              }
+            }
+          } catch (error) {
+            console.error("[Background] Error processing numbered variations:", error);
+            // Keep existing variations if processing fails
+          }
+          
+          // If we didn't get good variations from numbered format, try other approaches
+          if (variations.length < 3) {
+            console.log("[Background] Using alternative segmentation for variations");
+            variations = forcedVariations
+              .filter(reply => reply && reply.trim().length > 0)
+              .map(reply => reply.replace(/^\d+\.\s*/, '').trim()) // Remove any numbering
+              .map(reply => reply.replace(/^[-*•]\s*/, '').trim()) // Remove any bullet points
+              .map(reply => reply.replace(/###\w+###/g, '').trim()) // Remove any separators or tags
+              .map(removeHyphens); // Ensure no hyphens
+          }
+          
+          // If we still don't have enough variations, use the forced variations as fallback
+        if (variations.length < 3) {
+          console.log("[Background] Using fallback variation processing");
+          variations = forcedVariations
+            .filter(reply => reply && reply.trim().length > 0)
+            .map(reply => reply.replace(/^\d+\.\s*/, '').trim()) // Remove any numbering
+            .map(reply => reply.replace(/^[-*•]\s*/, '').trim()) // Remove any bullet points
+            .map(reply => reply.replace(/###\w+###/g, '').trim()) // Remove any separators or tags
+            .map(removeHyphens);
+        }
+          
+          // If we have less than 5 variations, try splitting by sentences
+          if (variations.length < 5) {
+            const sentences = variationsResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
+            const cleanSentences = sentences
+              .map(s => s.trim())
+              .filter(s => s.length >= 10 && s.length <= 120)
+              .map(s => removeHyphens(s));
+              
+            // Add unique sentences as variations
+            for (const sentence of cleanSentences) {
+              if (!variations.some(v => v.toLowerCase().includes(sentence.toLowerCase()) ||
+                                   sentence.toLowerCase().includes(v.toLowerCase()))) {
+                variations.push(sentence);
+                if (variations.length >= 5) break;
+              }
+            }
+          }
+          
+          // Always include the main reply as the first one
+          if (!variations.includes(mainReply)) {
+            variations.unshift(mainReply);
+          }
+          
+          // Keep only the top 5 variations
+          variations = variations.slice(0, 5);
+          
+          console.log("[Background] Final processed variations:", variations);
+          
+          // As a fallback, if we have fewer than 4 variations, make duplicates
+          // This ensures the UI shows the right number of slots
+          while (variations.length < 4) {
+            // Get a variation we can duplicate with minor modifications
+            const baseVar = variations[variations.length % variations.length];
+            variations.push(baseVar);
+          }
+        }
+        
+        // Generate contextual questions based on the tweet content
+        const questionsPrompt = `
+          Based on this tweet: "${tweetData.tweetText}"
+          
+          Generate 3 short, specific questions to help craft a personalized reply that directly engages with this tweet.
+          
+          CRITICAL FORMAT REQUIREMENTS:
+          - Format EXACTLY as: "Question 1: [question]" with each question on its own line
+          - Number questions 1-3 explicitly
+          - Questions must be directly about THIS specific tweet, not generic
+          - Keep questions brief (10-15 words) and immediately useful
+          - Make questions thought-provoking to inspire a great reply
+          - Return EXACTLY 3 questions and NOTHING else (no explanations, no headers)
+          - DO NOT include any separators like ### or other formatting markers
+          
+          TYPES OF QUESTIONS TO INCLUDE:
+          - One question about their personal experience related to what's in the tweet
+          - One question about a specific aspect or detail mentioned in the tweet
+          - One question about their future plans or intentions related to the tweet topic
+        `;
+        
+        const questionsResponse = await callOpenAI(userSettings.apiKey, questionsPrompt);
+        let guidingQuestions = [];
+        
+        if (questionsResponse) {
+          console.log("[Background] Raw questions response:", questionsResponse);
+          
+          // Improved question parsing with careful error handling
+          console.log("[Background] Parsing questions from response");
+          
+          try {
+            // Clean up the input by normalizing spaces and linebreaks
+            const cleanedInput = questionsResponse.replace(/\r\n|\r|\n/g, '\n').trim();
+            
+            // Look for "Question X:" patterns or numbered questions
+            const questionLines = [];
+            
+            // Try to find formatted Question X: patterns
+            const formatPattern = /Question\s*\d+\s*:/gi;
+            const matchResult = cleanedInput.match(formatPattern);
+            
+            if (matchResult && matchResult.length >= 2) {
+              console.log("[Background] Found formatted questions");
+              
+              // Split by the question pattern
+              const parts = cleanedInput.split(formatPattern);
+              // Skip the first part (it's before the first question)
+              for (let i = 1; i < parts.length; i++) {
+                if (parts[i].trim().length > 0) {
+                  questionLines.push(parts[i].trim());
+                }
+              }
+            } else {
+              // Fallback: split by lines or sentences
+              console.log("[Background] Using fallback question parsing");
+              
+              // Split by newlines first
+              const lines = cleanedInput.split('\n')
+                .filter(line => line.trim().length > 0);
+              
+              // Filter to find likely questions
+              questionLines.push(...lines.filter(line => {
+                const l = line.toLowerCase().trim();
+                return l.includes('?') || 
+                       l.startsWith('what') || 
+                       l.startsWith('how') || 
+                       l.startsWith('why') || 
+                       l.startsWith('when') || 
+                       l.startsWith('where') ||
+                       l.startsWith('which');
+              }));
+            }
+            
+            // Process and clean the questions
+            const cleanedQuestions = questionLines.map(q => {
+              // Remove any existing prefixes
+              return q.replace(/^\s*(?:Question\s*\d+\s*:|Q\d+\s*:|\d+\.\s*(?:Question)?\s*:)\s*/i, '').trim();
+            }).filter(q => q.length > 0);
+            
+            // Format final questions with proper prefixes
+            guidingQuestions = cleanedQuestions.slice(0, 3).map((q, i) => {
+              return `Question ${i+1}: ${q}`;
+            });
+            
+            // Add default questions if needed
+            if (guidingQuestions.length < 3) {
+              const defaultQuestions = [
+                "What inspired you to create this particular project?",
+                "What was the most rewarding part of bringing this to life?",
+                "Are you planning to expand or share this work further?"
+              ];
+              
+              while (guidingQuestions.length < 3) {
+                guidingQuestions.push(`Question ${guidingQuestions.length + 1}: ${defaultQuestions[guidingQuestions.length % 3]}`);
+              }
+            }
+          } catch (error) {
+            console.error("[Background] Error parsing questions:", error);
+            // Provide fallback questions if parsing fails
+            guidingQuestions = [
+              "Question 1: What was your inspiration behind this?",
+              "Question 2: What challenges did you face during development?",
+              "Question 3: What future improvements do you have planned?"
+            ];
+          }
+          
+          console.log("[Background] Final processed questions:", guidingQuestions);
+        }
 
-        // Process the response to get replies and contextual questions
-        const processedResponse = processAIResponse(
-          response,
-          postSeparator,
-          questionSeparator
-        );
-
-        // Ensure no hyphens in the final replies as a fallback
-        const cleanedReplies = processedResponse.replies.map((reply) =>
-          removeHyphens(reply)
-        );
-
-        // Format the response with replies and questions
+        // Ensure we have exactly 3 UNIQUE and properly formatted questions
+        if (guidingQuestions.length === 0) {
+          // If we have no questions at all, use the complete default set
+          guidingQuestions = [
+            "Question 1: What specific aspect of this tweet interests you most?",
+            "Question 2: How might your personal experience relate to this topic?",
+            "Question 3: What unique perspective can you add to this conversation?"
+          ];
+        } else if (guidingQuestions.length < 3) {
+          // If we have some questions but not enough, add different fallbacks
+          const defaultQuestions = [
+            "Question 1: What specific aspect of this tweet interests you most?",
+            "Question 2: How might your personal experience relate to this topic?",
+            "Question 3: What unique perspective can you add to this conversation?"
+          ];
+          
+          // Add remaining questions needed to reach 3 total
+          while (guidingQuestions.length < 3) {
+            guidingQuestions.push(defaultQuestions[guidingQuestions.length % defaultQuestions.length]);
+          }
+        }
+        
+        // Make sure we only have exactly 3 questions
+        guidingQuestions = guidingQuestions.slice(0, 3);
+        
+        // Make sure we have exactly 5 variations showing in the UI
+        // If we have fewer than 5 total variations, create additional ones based on existing ones
+        while (variations.length < 5) {
+          if (variations.length > 0) {
+            // Get one of the existing variations as a base
+            const baseVar = variations[variations.length % variations.length];
+            
+            // Create a slight variation by adding a common ending phrase
+            const endings = [
+              "right?",
+              "for real",
+              "so awesome",
+              "love that feeling",
+              "thats the real magic"
+            ];
+            
+            // Add a variation with a different ending
+            if (baseVar.endsWith("?") || baseVar.endsWith("!") || baseVar.endsWith(".")) {
+              // Remove the ending punctuation
+              const newVar = baseVar.slice(0, -1) + " " + 
+                            endings[variations.length % endings.length];
+              variations.push(newVar);
+            } else {
+              // Just add the ending
+              variations.push(baseVar + " " + endings[variations.length % endings.length]);
+            }
+          } else {
+            // If we somehow have no variations at all, use the main reply
+            variations.push(mainReply);
+          }
+        }
+        
+        // Combine main reply with variations 
         const formattedResponse = {
-          allReplies: cleanedReplies,
-          reply: cleanedReplies[0], // For backward compatibility
-          guidingQuestions: processedResponse.questions, // Add the contextual questions
+          allReplies: variations,  // This should include all 4 variations
+          reply: mainReply,        // For backward compatibility 
+          guidingQuestions: guidingQuestions
         };
-
-        console.log(
-          "[Background] Processed response with contextual questions:",
-          formattedResponse
-        );
+        
+        console.log("[Background] Processed response with contextual questions:", formattedResponse);
+        
         sendResponse(formattedResponse);
       } catch (error) {
         console.error("[Background] Error generating reply:", error);

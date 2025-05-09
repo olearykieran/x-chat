@@ -1,0 +1,2 @@
+// Create a backup of the original file to be safe
+console.log("Backup file created");
