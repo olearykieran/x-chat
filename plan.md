@@ -1,88 +1,110 @@
-# X-Chat Reply Tab Upgrade Plan
+# X-Chat Compose Tab Enhancement Plan
 
-This document outlines the plan of action to upgrade the "Reply" tab in the X-Chat Chrome extension. The goals are to improve usability, enhance AI reply generation, and provide users with tools for crafting their own responses, all while maintaining existing styles and core functionality.
+This document outlines the plan to upgrade the "Compose" tab in the X-Chat Chrome extension. The goal is to enhance the tweet generation capabilities by incorporating real-time news and user interests, while maintaining the existing styling and core functionality.
 
-## I. Backend Modifications (`bg.js` and Content Scripts)
+## I. Backend Enhancements (`bg.js` and API Integration)
 
-1.  **Fetch Tweet Author Handle Correctly:**
+1. **Implement Web Search for Latest News:**
+   * **Action:** Add functionality to query relevant news based on topics in the user's bio.
+   * **Goal:** Retrieve up-to-date news articles and information to generate topical, relevant tweets.
+   * **Implementation:**
+     * Integrate OpenAI's web search tool to fetch current news
+     * Extract topics of interest from user's bio
+     * Use these topics as search parameters to find relevant news
 
-    - **Action:** Investigate the content script and/or `bg.js` logic responsible for extracting tweet data from the X.com page.
-    - **Goal:** Resolve the issue where `tweetAuthorHandle` is `undefined`. This will likely involve refining DOM selectors or the parsing logic for tweet elements on X.com.
-    - **Reference:** The existing `console.log('tweetData:', tweetData);` in `bg.js` (around line 16, as per MEMORY[3c254b39-18f5-4f23-ac9b-feab05624a1b]) should be the starting point for debugging.
-    - **Update:** Modify the data extraction logic to reliably capture the correct author handle.
+2. **Utilize User's Liked Posts for Topic Analysis:**
+   * **Action:** Enhance processing of user's liked posts data.
+   * **Goal:** Identify patterns and recurring topics in the content the user engages with.
+   * **Implementation:**
+     * Process the existing `userLikedTopicsRaw` data
+     * Extract key topics, entities, and themes
+     * Use these insights to generate tweets on topics the user has shown interest in
 
-2.  **Automate First Post Selection & Data Extraction:**
+3. **Enhance AI Prompt for Tweet Generation in `bg.js`:**
+   * **Action:** Update the prompt sent to OpenAI API for tweet generation.
+   * **Goal:** Generate 5 distinct tweet suggestions incorporating both news and user interests.
+   * **Implementation:**
+     * Modify prompt to explicitly request 5 distinct tweet ideas
+     * Include news context from web search results
+     * Incorporate topics from user's liked content
+     * Use a delimiter for easy parsing (e.g., `###POST_SEPARATOR###`)
+     * Ensure tweets match user's writing style using `profileBio` and any available `userWritingSamples`
 
-    - **Action:** Enhance the content script that interacts with the X.com page.
-    - **Goal:**
-      - Automatically identify and select the _first chronological tweet/post_ visible in the user's current view on X.com when the "Reply" tab in the extension is active.
-      - Extract the content of this first post and its author's handle.
-      - Send this data to `bg.js` (e.g., via `chrome.runtime.sendMessage`) to automatically trigger the reply generation process without requiring a user click on a specific post.
+4. **Add Contextual Guiding Questions Generator:**
+   * **Action:** Create functionality to generate 3 thought-provoking questions based on trending topics.
+   * **Goal:** Help users formulate their own tweets with contextual prompts.
+   * **Implementation:**
+     * Use trending topics data to generate relevant questions
+     * Add a question separator (e.g., `###QUESTIONS_SEPARATOR###`) to the API response
+     * Parse and extract both tweet suggestions and questions
 
-3.  **Refine AI Prompt and Reply Processing in `bg.js` (within `GENERATE_REPLY` message handler):**
-    - **Ensure 5 Distinct Suggestions:**
-      - **Action:** Review and update the prompt sent to the OpenAI API.
-      - **Goal:** Ensure the prompt explicitly requests _at least 5 distinct reply suggestions_. Confirm the use of `###POST_SEPARATOR###` as a delimiter for easy parsing of multiple suggestions. (As per MEMORY[3c254b39-18f5-4f23-ac9b-feab05624a1b])
-    - **Reinforce User's Tone/Voice/Style:**
-      - **Action:** Verify the prompt construction in `bg.js` effectively incorporates `profileBio` and `userWritingSamples` (up to 5 examples) retrieved from `chrome.storage.sync`.
-      - **Goal:** The AI must be strongly guided to match the user's specific style, tone, and vocabulary for each of the 5 suggestions. (As per MEMORY[3c254b39-18f5-4f23-ac9b-feab05624a1b] and MEMORY[a7f0e0cf-801c-42c4-b767-0c360bd24d06])
-    - **Strict "No Hyphens" Rule:**
-      - **Action:** Add or strengthen the instruction in the AI prompt to explicitly forbid the use of single (-) or double (--) hyphens in generated responses.
-      - **Goal:** Minimize or eliminate hyphens directly from the AI output. (As per MEMORY[71bd34dc-239f-43ee-baf6-520b8ade5fc6] and MEMORY[3c254b39-18f5-4f23-ac9b-feab05624a1b])
-      - **Secondary Check (Optional):** Implement a lightweight string replacement in `bg.js` to remove/replace any stray hyphens from the AI's response before sending to the UI, as a fallback.
-    - **Process Replies:** Ensure the `GENERATE_REPLY` handler correctly parses the OpenAI response (potentially using the `###POST_SEPARATOR###`) into an array of 5 cleaned suggestions to be sent to the UI.
+## II. Frontend Updates (`ComposeTab.js` and Related Components)
 
-## II. Frontend Modifications (Primarily `src/ui/components/App.js`, `src/ui/state.js`, and relevant UI components)
+1. **Display 5 AI-Generated Tweets:**
+   * **Action:** Ensure the UI can display all 5 generated tweet suggestions.
+   * **Goal:** Present multiple diverse options to the user without changing current styling.
+   * **Implementation:**
+     * Maintain existing UI components and styling
+     * Update the rendering logic to handle 5 suggestions
+     * Ensure each suggestion retains "Use Tweet" and "Copy" buttons
 
-1.  **Display Correct Author Handle:**
+2. **Implement "Brainstorm" Section with Contextual Questions:**
+   * **Action:** Add a new section below tweet suggestions.
+   * **Goal:** Display 3 contextual questions to help users formulate their own tweets.
+   * **Implementation:**
+     * Create a UI section similar to the one in the Reply tab
+     * Display AI-generated questions related to trending topics
+     * Maintain consistent styling with the existing dark theme
 
-    - **Action:** Update the UI component responsible for displaying the tweet being replied to.
-    - **Goal:** Ensure it correctly renders the `tweetAuthorHandle` received from `bg.js` instead of `undefined`.
+3. **Source Attribution for News-Based Tweets:**
+   * **Action:** Add subtle attribution for tweets generated from news sources.
+   * **Goal:** Maintain transparency about content origins while keeping UI clean.
+   * **Implementation:**
+     * Add optional small attribution text or icon
+     * Ensure it doesn't disrupt existing UI/UX
 
-2.  **Handle Auto-Selected Post Data & Trigger AI:**
+## III. State Management Updates
 
-    - **Action:** Modify the initial state logic for the "Reply" tab in `App.js` or `state.js`.
-    - **Goal:** Upon opening the "Reply" tab, the UI should:
-      - Request (or automatically receive) the first post's data (content and author handle) from `bg.js`.
-      - Display this information (e.g., "Replying to @handle: post content...").
-      - Automatically trigger the AI reply generation process for this post.
+1. **Enhance Data Processing for Tweet Generation:**
+   * **Action:** Update state management to handle new data sources and formats.
+   * **Goal:** Seamlessly integrate web search results and topic analysis.
+   * **Implementation:**
+     * Update state handlers to process web search responses
+     * Store and manage user interest data efficiently
+     * Add state for contextual questions
 
-3.  **Display 5 AI-Generated Replies:**
-
-    - **Action:** Adjust the UI layout within the "Reply" tab if necessary to accommodate five suggestions.
-    - **Goal:** Clearly display all 5 AI-generated reply suggestions. Each suggestion card should retain its "Use Reply", "Copy", and "Regenerate" (or similar icon) buttons.
-
-4.  **Implement "Guiding Questions" Feature:**
-    - **Action:** Design and implement a new UI section within the "Reply" tab.
-    - **Goal:**
-      - Display 3 thoughtful questions to help the user brainstorm and formulate their own reply if they prefer not to use an AI-generated one. This section could be placed below the AI suggestions or be accessible via a toggle/button.
-      - **Example Questions:**
-        1.  "What's the main point you want to make in your reply?"
-        2.  "How can you add your unique perspective or a personal touch?"
-        3.  "Is there a specific emotion (e.g., agreement, curiosity, humor) you want to convey?"
-      - The styling of this new section must be consistent with the existing application's dark theme and overall design.
-
-## III. Content Script Modifications (Script interacting directly with X.com DOM)
-
-1.  **Robust Handle and First Post Extraction:**
-    - **Action:** Refine or rewrite DOM traversal and data extraction logic within the content script(s).
-    - **Goal:**
-      - Accurately identify and extract the tweet author's handle from the tweet element.
-      - Reliably identify the first chronological post currently visible on the user's screen on X.com. This needs to account for X.com's dynamic content loading and potentially evolving UI structure.
-    - **Mechanism:** The content script will likely need to listen for a message from `bg.js` or the popup UI when the reply tab is activated. Upon receiving this message, it will scrape the current page for the first post's data and send it back.
+2. **Optimization for Performance:**
+   * **Action:** Ensure efficient data handling for web search results.
+   * **Goal:** Maintain snappy performance despite additional data processing.
+   * **Implementation:**
+     * Implement caching for search results where appropriate
+     * Optimize data transformation/extraction functions
+     * Ensure asynchronous operations don't block UI
 
 ## IV. Testing and Quality Assurance
 
-1.  **Data Accuracy:** Thoroughly test on various X.com pages (main feed, individual tweet pages, replies, user profiles) and different types of tweets (text, media, quote tweets) to ensure the correct author handle and first post content are always identified and extracted.
-2.  **AI Reply Quality:**
-    - Verify that 5 distinct and contextually relevant suggestions are consistently generated.
-    - Critically assess if the tone, style, and vocabulary of the suggestions genuinely reflect the user's saved preferences (`profileBio`, `userWritingSamples`).
-    - Confirm the consistent absence of hyphens in AI outputs.
-3.  **Guiding Questions:** Ensure the questions are clearly displayed, helpful, and do not interfere with the AI reply workflow.
-4.  **UI/UX Integrity:**
-    - Confirm that all UI changes maintain the existing styling and dark theme.
-    - Check for responsiveness and ensure no layout issues arise from displaying more suggestions or the new questions section.
-    - The overall user flow for generating replies should remain intuitive.
-5.  **No Regressions:** Perform comprehensive testing of all other existing features of the extension (Compose tab, Schedule tab, Settings panel, API key management, general stability) to ensure they are not adversely affected by these changes.
+1. **Functionality Verification:**
+   * Confirm all 5 tweet suggestions are properly generated and displayed
+   * Verify tweets incorporate both news data and user interests
+   * Ensure guiding questions are relevant to trending topics
 
-By following this plan, the Reply tab will become more powerful, user-friendly, and aligned with the user's personalization preferences.
+2. **Integration Testing:**
+   * Test the interaction between web search, topic analysis, and tweet generation
+   * Verify all components communicate properly
+
+3. **UI/UX Integrity:**
+   * Confirm no styling has been changed from the current implementation
+   * Verify that the new features integrate seamlessly with existing components
+   * Ensure responsive design is maintained
+
+4. **Performance Testing:**
+   * Measure response times for tweet generation with new data sources
+   * Verify memory usage remains efficient
+   * Test with various network conditions
+
+5. **No Regressions:**
+   * Verify existing tabs (Reply, Schedule) function correctly
+   * Ensure settings and configuration options work as expected
+   * Confirm API key management functions properly
+
+By implementing this plan, the Compose tab will be significantly enhanced with personalized, up-to-date content generation capabilities while preserving the existing user experience and design.
