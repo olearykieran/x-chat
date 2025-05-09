@@ -57,54 +57,57 @@ function render() {
         setInputPlaceholder('Crafting a reply... (or type your reply here)');
       } else if (tabName === 'compose') {
         setInputPlaceholder('Composing a new masterpiece... (or type your tweet here)');
+        // Automatically generate tweets with news when switching to Compose tab
+        handleGenerateTweetsWithNews();
       }
     }
   });
   root.appendChild(tabs);
   
-  // Content container
-  const content = document.createElement('div');
-  content.className = 'content';
+  // Content section
+  let content;
   
-  // Error message
-  if (state.error) {
-    content.appendChild(renderErrorMessage(state.error));
-  } else if (state.message) { // Display general messages if no error
-    // We can create a new component for messages or reuse/adapt ErrorMessage
-    // For now, let's quickly adapt ErrorMessage style for general messages
-    const messageElement = renderErrorMessage(state.message); // Reusing for simplicity
-    messageElement.classList.remove('error-message'); // Remove error specific class
-    messageElement.classList.add('info-message'); // Add an info class (needs CSS)
-    content.appendChild(messageElement);
+  // Loading indicator takes priority
+  if (state.loading) {
+    content = renderLoadingIndicator();
+  } 
+  // Then error messages
+  else if (state.error) {
+    content = renderErrorMessage(state.error);
+  } 
+  // Then message display if no error
+  else if (state.message) {
+    const messageElement = renderErrorMessage(state.message);
+    // Customize styling for non-error messages
+    messageElement.style.backgroundColor = 'rgba(29, 161, 242, 0.1)';
+    messageElement.style.borderColor = 'var(--primary-color)';
+    content = messageElement;
   }
-  
-  // Loading indicator
-  if (state.loading || state.isGeneratingPosts) { // Also show for generating posts
-    content.appendChild(renderLoadingIndicator());
-  }
-  
-  // Tab content
-  if (state.activeTab === 'reply') {
-    content.appendChild(renderReplyTab({
+  // Then tab-specific content
+  else if (state.activeTab === 'reply') {
+    content = renderReplyTab({
       tweet: state.currentTweet,
       messages: state.messages,
-      onUseReply: useText,
-      onRegenerateReply: handleRegenerateReply
-    }));
-  } else if (state.activeTab === 'compose') { // Changed from else to else if
-    content.appendChild(renderComposeTab({
-      ideas: state.tweetIdeas,
-      trending: state.trendingTopics,
-      onUseTweet: useText
-    }));
-  } else if (state.activeTab === 'schedule') { // Add schedule tab content
-    content.appendChild(renderSchedulePanel({
+      onUseReply: (text) => useText(text), // Function to use the selected reply
+      onRegenerateReply: (tweet) => handleRegenerateReply(tweet)
+    });
+  } else if (state.activeTab === 'compose') {
+    content = renderComposeTab({
+      ideas: state.tweetIdeas || [],
+      trending: state.trendingTopics || [],
+      newsSource: state.newsSource || '',
+      guidingQuestions: state.guidingQuestions || [],
+      onUseTweet: (text) => useText(text), // Function to use the selected tweet
+      isLoading: !state.tweetIdeas || state.tweetIdeas.length === 0 // Show loading if we have no ideas yet
+    });
+  } else if (state.activeTab === 'schedule') {
+    content = renderSchedulePanel({
       settings: state.settings,
       onGeneratePosts: handleGeneratePosts,
-      onSchedulePosts: handleSchedulePosts, // Placeholder for now
-      generatedPosts: state.generatedPosts,
+      onSchedulePosts: handleSchedulePosts,
+      generatedPosts: state.generatedPosts || [],
       isGenerating: state.isGeneratingPosts
-    }));
+    });
   }
   
   root.appendChild(content);
@@ -318,6 +321,62 @@ function handleRegenerateReply(tweet) {
       // which will trigger a re-render through the subscription.
       // So, no direct UI update here, rely on state change.
       console.log('[App.js] GENERATE_AI_REPLY message sent. Response:', response);
+    }
+  );
+}
+
+// Handler for generating tweets with news and user interests
+function handleGenerateTweetsWithNews() {
+  console.log('[App.js] Generating tweets with news and interests');
+  const state = getState();
+  
+  // Clear trending topics and set loading state
+  updateState({
+    tweetIdeas: [],          // Clear existing tweet ideas
+    trendingTopics: [],      // Clear trending topics completely
+    newsSource: '',          // Clear news source 
+    guidingQuestions: [],    // Clear guiding questions
+    loading: true            // Show loading indicator
+  });
+  
+  setError(null);
+  
+  // Send message to background script to generate tweets with news
+  chrome.runtime.sendMessage(
+    { 
+      type: 'GENERATE_TWEETS',
+      tone: state.selectedTone 
+    },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('[App.js] Error generating tweets:', chrome.runtime.lastError);
+        setError(`Error generating tweets: ${chrome.runtime.lastError.message}`);
+        setLoadingState(false);
+        return;
+      }
+      
+      if (response && response.error) {
+        console.error('[App.js] Error from GENERATE_TWEETS handler:', response.error);
+        setError(response.error);
+        setLoadingState(false);
+        return;
+      }
+      
+      // Only include trending topics if they actually exist and have a valid source
+      const trendingTopics = (response.trending && response.trending.length > 0 && response.newsSource) 
+        ? response.trending 
+        : [];
+      
+      // Update state with generated tweets and context
+      updateState({
+        tweetIdeas: response.ideas || [],
+        trendingTopics: trendingTopics,
+        newsSource: response.newsSource || '',
+        guidingQuestions: response.guidingQuestions || [],
+        loading: false
+      });
+      
+      console.log('[App.js] Generated tweets with news:', response);
     }
   );
 }

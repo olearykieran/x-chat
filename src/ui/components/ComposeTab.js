@@ -3,17 +3,22 @@
  * @param {Object} props - Component props
  * @returns {HTMLElement} - Compose tab element
  */
-export function renderComposeTab({ ideas, trending, onUseTweet }) {
+export function renderComposeTab({ ideas, trending, onUseTweet, newsSource, guidingQuestions, isLoading }) {
   const container = document.createElement('div');
   
-  // Show trending topics
-  if (trending && trending.length > 0) {
+  // Show loading state if we're still loading
+  if (isLoading) {
+    return renderEmptyState('compose');
+  }
+  
+  // Show trending topics only if we have real data (not placeholders)
+  if (trending && trending.length > 0 && newsSource) {
     const trendingContainer = document.createElement('div');
     trendingContainer.className = 'tweet-card';
     
     const trendingTitle = document.createElement('div');
     trendingTitle.className = 'tweet-author';
-    trendingTitle.textContent = 'Trending Topics';
+    trendingTitle.textContent = newsSource === 'topics' ? 'Latest News Topics' : 'Trending Topics';
     
     const trendingList = document.createElement('div');
     trendingList.className = 'tweet-text';
@@ -63,6 +68,35 @@ export function renderComposeTab({ ideas, trending, onUseTweet }) {
     });
     
     container.appendChild(ideasContainer);
+    
+    // Add Brainstorm section with guiding questions if available
+    if (guidingQuestions && guidingQuestions.length > 0) {
+      const guidingQuestionsContainer = document.createElement('div');
+      guidingQuestionsContainer.className = 'guiding-questions-container';
+      
+      const questionsTitle = document.createElement('h3');
+      questionsTitle.className = 'questions-title';
+      questionsTitle.textContent = 'Brainstorm Your Own Tweet';
+      guidingQuestionsContainer.appendChild(questionsTitle);
+      
+      const questionsDescription = document.createElement('p');
+      questionsDescription.className = 'questions-description';
+      questionsDescription.textContent = 'Consider these questions to help formulate your own tweet:';
+      guidingQuestionsContainer.appendChild(questionsDescription);
+      
+      const questionsList = document.createElement('ul');
+      questionsList.className = 'questions-list';
+      
+      guidingQuestions.forEach(question => {
+        const questionItem = document.createElement('li');
+        questionItem.className = 'question-item';
+        questionItem.textContent = question;
+        questionsList.appendChild(questionItem);
+      });
+      
+      guidingQuestionsContainer.appendChild(questionsList);
+      container.appendChild(guidingQuestionsContainer);
+    }
   } else {
     container.appendChild(renderEmptyState('compose'));
   }
