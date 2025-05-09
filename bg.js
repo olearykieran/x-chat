@@ -10,12 +10,16 @@ async function searchWeb(query, userLocation = null, contextSize = "medium") {
       throw new Error("API key is not set for web search");
     }
 
-    // Instead of trying to use the web_search_preview tool directly,
-    // we'll use a regular OpenAI call with instructions to summarize the latest information
     const systemMessage =
-      "You are a helpful assistant with access to the latest information. " +
-      "Provide accurate, up-to-date information about the query, focusing on " +
-      "developments from the last 24-48 hours when relevant.";
+      "You are a highly specialized news summarization engine. Your sole purpose is to find and provide concise, factual summaries of the latest information (within the last 24-48 hours if possible) directly related to the user's query.\n\n"
+      + "CRITICAL INSTRUCTIONS FOR THIS TASK:\n"
+      + "1. Output: Provide a neutral, factual summary of the information. This could be a short paragraph or 2-3 key bullet points detailing recent developments or core facts.\n"
+      + "2. Content: Focus ONLY on verifiable facts and recent news.\n"
+      + "3. DO NOT generate opinions, interpretations, or suggestions.\n"
+      + "4. DO NOT format the output as a tweet, social media post, or any form of content suggestion.\n"
+      + "5. DO NOT engage in conversation or provide any text beyond the factual summary.\n"
+      + "6. If multiple distinct pieces of information are found for the query, summarize each briefly. Aim for diversity in the information presented if the query is broad.\n\n"
+      + "The user's query will follow. Provide only the summary.";
 
     const response = await callOpenAI(
       userSettings.apiKey,
@@ -342,23 +346,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   console.log(`[Background] Direct injection preserving ${userReplies.length} existing replies`);
                 }
                 
-                console.log(`[Background] Direct injection final data: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
+                console.log(`[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
+                console.log('[Background] DEBUG: Final userReplies array:', userReplies);
+                
+                // Log the updated global variables
+                console.log('[Background] DEBUG: Global userWritingSamples length:', userWritingSamples.length);
+                console.log('[Background] DEBUG: Global userReplies length:', userReplies.length);
                 
                 // Save to local storage
                 await chrome.storage.local.set({ 
                   userWritingSamples: userWritingSamples,
                   userReplies: userReplies 
+                }, () => {
+                  if (chrome.runtime.lastError) {
+                    console.error('[Background] ERROR saving to storage:', chrome.runtime.lastError);
+                  } else {
+                    console.log('[Background] DEBUG: Successfully saved to chrome.storage.local');
+                    // Verify what was saved by reading it back
+                    chrome.storage.local.get(['userReplies', 'userWritingSamples'], (result) => {
+                      console.log('[Background] DEBUG: Verification after save - posts:', 
+                        result.userWritingSamples ? result.userWritingSamples.length : 'undefined',
+                        'replies:', result.userReplies ? result.userReplies.length : 'undefined');
+                    });
+                  }
                 });
                 
-                // Verify what was saved
-                const verification = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
-                console.log('[Background] Direct injection verification -', 
-                  'Posts:', verification.userWritingSamples ? verification.userWritingSamples.length : 0,
-                  'Replies:', verification.userReplies ? verification.userReplies.length : 0);
-                
-                // Send success response
-                sendResponse({
-                  success: true,
+                sendResponse({ 
+                  success: true, 
                   status: `Successfully collected ${result.totalCount} items for voice training (${result.postsCount} posts, ${result.repliesCount} replies).`,
                   count: result.totalCount,
                   postsCount: result.postsCount,
@@ -732,7 +746,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: `Error polishing transcript: ${error.message}` });
       }
     } else if (message.type === "GENERATE_REPLY") {
-      const { tweetData, tone, userInstruction } = message;
+      const { tweetData, tone, userInstruction } = message; // Assuming data and userInstruction
       console.log("[Background] Generating reply for tweet:", tweetData);
 
       if (!tweetData || !tweetData.tweetText) {
@@ -775,22 +789,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             : ""
         }
         
+        ${
+          userReplies && userReplies.length > 0 // Check if userReplies exists and has items
+            ? `IMPORTANT - ALSO Match the style, tone, and vocabulary of these RECENT USER REPLIES:\n        ${userReplies
+                .slice(0, 5) // Take up to 5 recent replies
+                .map((reply, i) => `User Reply Example ${i + 1}: "${reply}"`)
+                .join("\n")}`
+            : ""
+        }
+        
+        ${
+          userInstruction ? `The user provided this specific instruction for the reply: "${userInstruction}". Prioritize this instruction while maintaining the overall style.
+` : ""
+        }
+
         STRICT REQUIREMENTS FOR REPLIES:
         1.  Create 5 COMPLETELY DIFFERENT replies that match the user's writing style
         2.  Each reply must have a distinct angle or approach
         3.  DO NOT use ANY hyphens (- or --) in ANY of the replies - this is very important
         4.  Each reply should be 1-3 sentences, concise and engaging
         5.  Match the user's vocabulary level, sentence structure, and conversational style
-        6.  Format each reply separated by "${postSeparator}"
-        7.  Tone should be: ${tone || "neutral"}
-        ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ""}
+        6.  Tone should be: ${tone || "neutral"}
+        7.  Format each reply separated by "${postSeparator}"
         
         AFTER THE REPLIES, INCLUDE "${questionSeparator}" FOLLOWED BY 3 CONTEXTUAL GUIDING QUESTIONS:
-        1. Create 3 thought-provoking questions that directly relate to the specific content of the tweet
-        2. These questions should help the user formulate their own thoughtful response
-        3. Make questions specific to the topic, events, people, or opinions mentioned in the tweet
-        4. Avoid generic questions - they must clearly relate to this specific tweet's content
-        5. Format: Question 1, then Question 2, then Question 3, each on its own line
+        1.  Create 3 thought-provoking questions that directly relate to the specific content of the tweet
+        2.  These questions should help the user formulate their own thoughtful response
+        3.  Make questions specific to the topic, events, people, or opinions mentioned in the tweet
+        4.  Avoid generic questions - they must clearly relate to this specific tweet's content
+        5.  Format: Question 1, then Question 2, then Question 3, each on its own line
         `;
 
       try {
@@ -800,7 +827,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tone,
           userInstruction,
           userSettings.profileBio,
-          userWritingSamples,
+          userSettings.userPosts,
           userSettings.likedTweets
         );
 
@@ -841,7 +868,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         data.tweetAuthorHandle
       }: "${data.tweetText}"\n`;
       // Add userWritingSamples and userInstruction to prompt if they exist...
-      console.log("[Background] FINAL PROMPT for GENERATE_AI_REPLY:", prompt);
+      console.log("[Background] FINAL PROMPT for generateReply:", prompt);
       const reply = await callOpenAI(
         userSettings.apiKey,
         prompt,
@@ -858,7 +885,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let topicsForIdeas =
         "current technology, AI advancements, and software development trends";
       if (userLikedTopicsRaw && userLikedTopicsRaw.length > 0) {
-        topicsForIdeas = userLikedTopicsRaw.slice(0, 5).join("... ");
+        topicsForIdeas = userLikedTopicsRaw.slice(0, 5).join("... "); // Using first 5 liked snippets
       } else if (trending && trending.length > 0) {
         topicsForIdeas = trending.join(", ");
       }
@@ -979,6 +1006,15 @@ async function generateReply(tweetData, tone = "neutral") {
     prompt += `(No specific writing samples provided, rely on the profile bio for style.)\n`;
   }
 
+  if (userReplies && userReplies.length > 0) {
+    prompt += `The user's recent replies also show their style:\n`;
+    userReplies.slice(0, 5).forEach((reply, index) => {
+      // Use up to 5 recent replies
+      prompt += `Reply Example ${index + 1}: "${reply}"\n`;
+    });
+    prompt += `Match the tone and style of these recent replies as well.\n`;
+  }
+
   if (userInstruction) {
     prompt += `The user provided this specific instruction for the reply: "${userInstruction}". Prioritize this instruction while maintaining the overall style.
 `;
@@ -1050,20 +1086,27 @@ async function generateTweetIdeas(trending, tone = "neutral", userInstruction = 
     prompt += `---`;
   }
 
-  prompt += `\nIMPORTANT STYLE GUIDELINES (unless contradicted by user's samples/bio or liked topics):
+  if (userReplies && userReplies.length > 0) {
+    prompt += `The user's recent replies also show their style:\n`;
+    userReplies.slice(0, 3).forEach((reply, index) => {
+      // Use up to 3 recent replies
+      prompt += `Reply Example ${index + 1}: "${reply}"\n`;
+    });
+    prompt += `---`;
+  }
+
+  prompt += `\nIMPORTANT STYLE GUIDELINES (unless contradicted by user's samples/bio):
 1.  The ideas should sound authentically human and align with the user's described style.
 2.  Tweet ideas should be concise and suitable for X.com (formerly Twitter).
 3.  Consider adopting a clear viewpoint or a more opinionated/assertive stance if the user's style or liked topics suggest it. Avoid overly neutral or 'balanced' takes unless that's the user's explicit style. If in doubt, lean towards a more distinct perspective.
-4.  AVOID using emojis in the tweet ideas unless the user's writing samples, bio, or specific instruction asks for them.
-5.  AVOID using hashtags in the tweet ideas unless they are clearly present in the user's writing samples, bio, or if the user explicitly asks for them. (Note: User's default hashtag list is currently ${
-    userSettings.hashtags && userSettings.hashtags.length > 0
-      ? userSettings.hashtags.join(", ")
-      : "empty"
-  }).
-6.  AVOID using double dashes ('--') for emphasis or as sentence connectors unless present in user's samples/bio.
-7.  Aim for a mix of content: perhaps a question, a useful tip, a bold take, or an interesting observation.
-
-Generate 3 distinct tweet ideas now, separated by double newlines (\n\n):`;
+4.  CRITICAL INSTRUCTION: Absolutely DO NOT use or suggest any hashtags (e.g., #topic). Tweets should not contain the '#' symbol for tagging.
+5.  Match the user's vocabulary level, sentence structure, and conversational style (based on bio, writing samples, and reply examples provided).
+6.  AVOID using emojis in the tweet ideas unless the user's writing samples, bio, or specific instruction asks for them.
+7.  AVOID using double dashes ('--') for emphasis or as sentence connectors unless present in user's samples/bio.
+8.  Aim for a mix of content: perhaps a question, a useful tip, a bold take, or an interesting observation.
+9.  MOST IMPORTANTLY FOR VARIETY: Avoid making all or a majority of the tweet ideas questions. Strive for a balance, with statements and observations being prominent.
+10. Tweets should sound natural, human-like, and reflect a genuine, engaging voice. Avoid robotic, generic, or overly formulaic phrasing.
+11. Format each of the 3 tweet ideas separated by double newlines (\n\n):`;
 
   console.log("[Background] FINAL PROMPT for generateTweetIdeas:", prompt);
   console.log(
@@ -1072,7 +1115,16 @@ Generate 3 distinct tweet ideas now, separated by double newlines (\n\n):`;
       ? userSettings.apiKey.substring(0, 10) + "..."
       : "API Key not set or empty"
   );
-  const response = await callOpenAI(userSettings.apiKey, prompt);
+  const response = await callOpenAI(
+    userSettings.apiKey,
+    prompt,
+    tone,
+    userInstruction,
+    userSettings.profileBio,
+    userSettings.userPosts,
+    userSettings.likedTweets
+  );
+
   return response.split("\n\n").filter((idea) => idea.trim().length > 0);
 }
 
@@ -1436,33 +1488,27 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
   try {
     console.log("[Background] Generating tweets with news and interests");
 
+    // Ensure all data is loaded from storage first
+    await loadDataFromStorage();
+    console.log("[Background] Data loading complete. Proceeding with tweet generation.");
+    console.log("[DEBUG] Global userLikedTopicsRaw after loadDataFromStorage:", JSON.stringify(userLikedTopicsRaw ? userLikedTopicsRaw.slice(0,3) : 'N/A'));
+
     // 1. Extract topics from user bio
     const bioTopics = await extractTopicsFromBio(userSettings.profileBio);
     console.log("[Background] Topics from bio:", bioTopics);
-    console.log("[DEBUG] Extracted Bio Topics:", JSON.stringify(bioTopics, null, 2)); // Added log
+    console.log("[DEBUG] Extracted Bio Topics:", JSON.stringify(bioTopics, null, 2));
 
     // 2. Analyze liked posts for topics
-    let userLikedTopicsRaw = [];
-    try {
-      // Use optional chaining to safely access .likedTweets
-      // This prevents a TypeError if loadDataFromStorage("likedTweets") returns undefined.
-      userLikedTopicsRaw = (await loadDataFromStorage("likedTweets"))?.likedTweets || [];
-    } catch (e) {
-      // This catch block will now primarily handle other unexpected errors during storage access
-      // or if loadDataFromStorage itself throws an error for other reasons.
-      console.warn("[Background] Error during liked tweets data loading or processing:", e);
-      userLikedTopicsRaw = []; // Ensure it defaults to an empty array on any error
-    }
-    const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw);
+    const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw); // Use the global userLikedTopicsRaw
     console.log("[Background] Topics from liked posts:", likedPostsTopics);
-    console.log("[DEBUG] Extracted Liked Posts Topics:", JSON.stringify(likedPostsTopics, null, 2)); // Added log
+    console.log("[DEBUG] Extracted Liked Posts Topics:", JSON.stringify(likedPostsTopics, null, 2));
 
     // Combine topics and remove duplicates
     const allTopics = [
       ...new Set([...(bioTopics || []), ...(likedPostsTopics || [])]),
     ];
     console.log("[Background] Combined unique topics:", allTopics);
-    console.log("[DEBUG] Combined Unique Topics for Search/Prompt:", JSON.stringify(allTopics, null, 2)); // Added log
+    console.log("[DEBUG] Combined Unique Topics for Search/Prompt:", JSON.stringify(allTopics, null, 2));
 
     // 3. Perform web search based on combined topics or default if none
     let searchQuery = allTopics.length > 0 ? allTopics.join(", ") : "current trending topics in tech and AI";
@@ -1473,9 +1519,9 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
 
     console.log("[Background] Performing web search with query:", searchQuery);
     const searchResults = await searchWeb(searchQuery);
-    console.log("[DEBUG] Raw Web Search Results:", JSON.stringify(searchResults, null, 2)); // Added log
+    console.log("[DEBUG] Raw Web Search Results:", JSON.stringify(searchResults, null, 2));
     if (searchResults && searchResults.text) {
-      console.log("[DEBUG] Web Search Results Text:", searchResults.text.substring(0, 500) + (searchResults.text.length > 500 ? "... (truncated)" : "")); // Added log for the text content
+      console.log("[DEBUG] Web Search Results Text:", searchResults.text.substring(0, 500) + (searchResults.text.length > 500 ? "... (truncated)" : ""));
     }
 
     // Prepare context for OpenAI
@@ -1515,75 +1561,107 @@ async function generateTweetsWithNews(tone = "neutral", userInstruction = null) 
     const postSeparator = "###POST_SEPARATOR###";
     const questionSeparator = "###QUESTIONS_SEPARATOR###";
 
+    let styleAndInterestContext = "";
+    if (userSettings.profileBio) {
+      styleAndInterestContext += `IMPORTANT - Match this bio/style: ${userSettings.profileBio}\n`;
+    }
+    // Assuming userWritingSamples and userReplies are accessible in this scope (e.g., global or passed in)
+    if (typeof userWritingSamples !== 'undefined' && userWritingSamples && userWritingSamples.length > 0) {
+      styleAndInterestContext += `User's writing samples (match style and topics):\n${userWritingSamples.slice(0, 3).map(sample => typeof sample === 'string' ? sample : (sample && sample.text ? sample.text : '')).filter(Boolean).join("\n---\n")}\n`;
+    }
+    if (typeof userReplies !== 'undefined' && userReplies && userReplies.length > 0) {
+      styleAndInterestContext += `User's past replies (emulate tone and common themes):\n${userReplies.slice(0, 3).map(reply => typeof reply === 'string' ? reply : (reply && reply.text ? reply.text : '')).filter(Boolean).join("\n---\n")}\n`;
+    }
+    // likedPostsTopics is defined earlier in the function
+    if (likedPostsTopics && likedPostsTopics.length > 0) {
+      styleAndInterestContext += `User's liked topics (reflect these interests): ${likedPostsTopics.join(", ")}\n`;
+    }
+
     const prompt = `
-      Generate 5 distinct tweet ideas and 3 thought-provoking questions based on the following context:
+You are an AI assistant tasked with generating diverse and engaging social media content.
 
-      ${newsContext}
+CRITICAL INSTRUCTIONS:
+1.  ABSOLUTELY NO HASHTAGS. Do not use the '#' symbol for tags. Do not suggest hashtags.
+2.  AVOID UNNECESSARY HYPHENS. Only use hyphens if grammatically essential (e.g., in compound adjectives like 'thought-provoking'). Do not use them for emphasis or unusual word connections.
+3.  The user wants varied outputs. Avoid repetitive sentence structures or themes across the suggestions.
+4.  Match the user's voice, style, and interests derived from their profile, writing samples, replies, and liked topics provided below.
 
-      ${
-        userSettings.profileBio
-          ? `IMPORTANT - Match this bio/style: ${userSettings.profileBio}`
-          : ""
-      }
-      
-      ${
-        userWritingSamples.length > 0
-          ? `IMPORTANT - Match the style, tone, and vocabulary of these writing samples:
-        ${userWritingSamples
-          .map((sample, i) => `Sample ${i + 1}: "${sample}"`)
-          .join("\n")}`
-          : ""
-      }
-      
-      STRICT REQUIREMENTS FOR TWEETS:
-      1.  Create 5 COMPLETELY DIFFERENT tweet ideas with diverse angles and approaches
-      2.  Each tweet must be concise (max 280 characters) and engaging
-      3.  DO NOT use ANY hyphens (- or --) in ANY of the tweets - this is very important
-      4.  Match the user's vocabulary level, sentence structure, and conversational style
-      5.  Format each tweet separated by "${postSeparator}"
-      6.  Tone should be: ${tone || "neutral"}
-      7.  Include relevant hashtags where appropriate
-      ${userInstruction ? `8. Additional instruction: ${userInstruction}` : ""}
-      
-      AFTER THE TWEETS, INCLUDE "${questionSeparator}" FOLLOWED BY 3 BRAINSTORMING QUESTIONS:
-      1. Create 3 thought-provoking questions that help the user formulate their own tweet
-      2. Questions should relate to trending topics or user interests
-      3. Make questions specific and actionable for content creation
-      4. Format: Question 1, then Question 2, then Question 3, each on its own line
-    `;
+Based on the following news context and user profile information:
 
-    console.log("[Background] Calling OpenAI with tweet generation prompt");
-    const response = await callOpenAI(
-      userSettings.apiKey,
-      prompt,
-      tone,
-      userInstruction,
-      userSettings.profileBio,
-      userWritingSamples
-    );
+News Context:
+${newsContext}
 
-    // 6. Process the response to extract tweets and questions
-    const processedResponse = processAIResponse(
-      response,
-      postSeparator,
-      questionSeparator
-    );
+User Profile & Interests:
+${styleAndInterestContext || "User profile information not extensively available. Focus on general appeal for the topics in the news context."}
 
-    // 7. Ensure no hyphens in the final tweets
-    const cleanedTweets = processedResponse.replies.map((tweet) => removeHyphens(tweet));
+Task:
+1.  Generate 5 distinct tweet ideas. Each tweet should be a complete thought, ready to post.
+    - Ensure variety in tone and approach for each tweet.
+    - Separate each tweet idea with "${postSeparator}".
+2.  Generate 3 thought-provoking questions. These questions should:
+    - Connect the News Context with the user's unique voice, style, and interests (as detailed in User Profile & Interests).
+    - Inspire personalized reflection and content creation for the user.
+    - Be formatted as "Question X: [Your question]".
+    - Separate each question with "${questionSeparator}".
 
-    // 8. Format the response
-    const result = {
-      ideas: cleanedTweets,
-      // Only include trending topics if they're from a real source
-      trending: newsSource === "topics" || newsSource === "web" ? trendingTopics : [],
-      // Only include newsSource if it's a real source
-      newsSource: newsSource === "topics" || newsSource === "web" ? newsSource : "",
-      guidingQuestions: processedResponse.questions,
-    };
+Output Format Example:
+[Tweet Idea 1]
+${postSeparator}
+[Tweet Idea 2]
+${postSeparator}
+[Tweet Idea 3]
+${postSeparator}
+[Tweet Idea 4]
+${postSeparator}
+[Tweet Idea 5]
+${questionSeparator}
+Question 1: [Question text]
+${questionSeparator}
+Question 2: [Question text]
+${questionSeparator}
+Question 3: [Question text]
+`;
 
-    console.log("[Background] Generated tweets with context:", result);
-    return result;
+    console.log("[Background] Sending prompt to OpenAI for tweet generation:", prompt.substring(0, 500) + (prompt.length > 500 ? "... (truncated)" : ""));
+    try {
+      const response = await callOpenAI(
+        userSettings.apiKey,
+        prompt,
+        tone,
+        userInstruction,
+        userSettings.profileBio,
+        userWritingSamples,
+        userLikedTopicsRaw
+      );
+
+      // Process the response to get tweets and questions
+      const processedResponse = processAIResponse(
+        response,
+        postSeparator,
+        questionSeparator
+      );
+
+      // Ensure no hyphens in the final tweets
+      const cleanedTweets = processedResponse.replies.map((tweet) =>
+        removeHyphens(tweet)
+      );
+
+      // Format the response
+      const result = {
+        ideas: cleanedTweets,
+        // Only include trending topics if they're from a real source
+        trending: newsSource === "topics" || newsSource === "web" ? trendingTopics : [],
+        // Only include newsSource if it's a real source
+        newsSource: newsSource === "topics" || newsSource === "web" ? newsSource : "",
+        guidingQuestions: processedResponse.questions,
+      };
+
+      console.log("[Background] Generated tweets with context:", result);
+      return result;
+    } catch (error) {
+      console.error("[Background] Error generating tweets with news:", error);
+      throw error;
+    }
   } catch (error) {
     console.error("[Background] Error generating tweets with news:", error);
     throw error;
@@ -1641,145 +1719,156 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-function loadDataFromStorage() {
+async function loadDataFromStorage() { 
   console.log(
     "[Background] loadDataFromStorage called. userSettings BEFORE sync.get (should be defaults):",
     JSON.parse(JSON.stringify(userSettings))
   );
   
-  // First, load user profile data from local storage (posts, replies, and likes)
-  chrome.storage.local.get(["userWritingSamples", "userReplies", "userLikedTopicsRaw"], (localData) => {
-    console.log("[Background] Loading user profile data from local storage:", localData);
-    
-    // Update global variables with stored data if available
-    if (localData.userWritingSamples) {
-      userWritingSamples = localData.userWritingSamples;
-      console.log(`[Background] Loaded ${userWritingSamples.length} posts from storage.`);
-    } else {
-      console.log("[Background] No posts found in storage. Using defaults.");
-      userWritingSamples = [];
-    }
-    
-    // Load replies (a new addition to our data structure)
-    if (localData.userReplies) {
-      // Use the global userReplies variable
-      userReplies = localData.userReplies;
-      console.log(`[Background] Loaded ${userReplies.length} replies from storage.`);
-    } else {
-      console.log("[Background] No replies found in storage. Using defaults.");
-      userReplies = [];
-    }
-    
-    if (localData.userLikedTopicsRaw) {
-      userLikedTopicsRaw = localData.userLikedTopicsRaw;
-      console.log(`[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`);
-    } else {
-      console.log("[Background] No liked posts found in storage. Using defaults.");
-      userLikedTopicsRaw = [];
-    }
-  });
-  
-  // Then, load settings from sync storage
-  chrome.storage.sync.get(
-    // Request all individual keys that we manage, plus the general 'settings' object for any legacy/other props
-    ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey", "settings"],
-    (result) => {
-      console.log("[Background] loadDataFromStorage - Data retrieved from sync:", result);
-      console.log("[Background] loadDataFromStorage - result.useOwnKey from sync before decision:", result.useOwnKey);
+  const localGetPromise = new Promise((resolve, reject) => {
+    chrome.storage.local.get(["userWritingSamples", "userReplies", "userLikedTopicsRaw"], (localData) => {
       if (chrome.runtime.lastError) {
-        console.error(
-          "[Background] Error loading data from storage:",
-          chrome.runtime.lastError
-        );
-        return;
+        console.error("[Background] Error loading local data:", chrome.runtime.lastError);
+        return reject(chrome.runtime.lastError);
       }
-
-      // Apply stored values if they exist, overwriting the defaults
-      if (result.apiKey !== undefined) {
-        userSettings.apiKey = result.apiKey;
-        globalThis.apiKeyInitialized = true;
+      console.log("[Background] Loading user profile data from local storage:", localData);
+      
+      if (localData.userWritingSamples) {
+        userWritingSamples = localData.userWritingSamples;
+        console.log(`[Background] Loaded ${userWritingSamples.length} posts from storage.`);
       } else {
-        // If apiKey is not in storage, globalThis.apiKeyInitialized should reflect that we've checked
-        // and it relies on its default (null or empty string from DEFAULT_SETTINGS).
-        globalThis.apiKeyInitialized = userSettings.apiKey !== null && userSettings.apiKey !== '';
-      }
-      if (result.profileBio !== undefined) {
-        userSettings.profileBio = result.profileBio;
-      }
-      if (result.hashtags !== undefined) {
-        userSettings.hashtags = result.hashtags;
-      }
-      if (result.tone !== undefined) {
-        userSettings.tone = result.tone; // This is the 'defaultTone' from settings UI
+        console.log("[Background] No posts found in storage. Using defaults.");
+        userWritingSamples = [];
       }
       
-      // Special handling for useOwnKey to ensure default is set if not present in storage
-      if (result.useOwnKey === undefined) { // If truly not present in storage
-        console.log("[Background] loadDataFromStorage - useOwnKey is UNDEFINED in sync. Setting to default (true) and attempting to persist.");
-        userSettings.useOwnKey = true; // Apply default
-        chrome.storage.sync.set({ useOwnKey: true }, () => {
-          if (chrome.runtime.lastError) {
-            console.error("[Background] loadDataFromStorage - Error trying to persist default useOwnKey:", chrome.runtime.lastError.message);
-          } else {
-            console.log("[Background] loadDataFromStorage - Successfully persisted default useOwnKey: true to sync storage.");
-          }
-        });
-      } else { // Value exists in storage (could be true or false)
-        console.log("[Background] loadDataFromStorage - useOwnKey has a value in sync storage. Applying it:", result.useOwnKey);
-        userSettings.useOwnKey = result.useOwnKey; // Apply the stored value
+      if (localData.userReplies) {
+        userReplies = localData.userReplies;
+        console.log(`[Background] Loaded ${userReplies.length} replies from storage.`);
+      } else {
+        console.log("[Background] No replies found in storage. Using defaults.");
+        userReplies = [];
       }
-      console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+      
+      if (localData.userLikedTopicsRaw) {
+        userLikedTopicsRaw = localData.userLikedTopicsRaw;
+        console.log(`[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`);
+      } else {
+        console.log("[Background] No liked posts found in storage. Using defaults.");
+        userLikedTopicsRaw = [];
+      }
+      resolve();
+    });
+  });
+  
+  const syncGetPromise = new Promise((resolve, reject) => {
+    chrome.storage.sync.get(
+      ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey", "settings"],
+      (result) => {
+        console.log("[Background] loadDataFromStorage - Data retrieved from sync:", result);
+        console.log("[Background] loadDataFromStorage - result.useOwnKey from sync before decision:", result.useOwnKey);
+        if (chrome.runtime.lastError) {
+          console.error(
+            "[Background] Error loading sync data from storage:",
+            chrome.runtime.lastError
+          );
+          return reject(chrome.runtime.lastError);
+        }
 
-      // Handle the general 'settings' object from storage as a fallback or for additional properties
-      // This ensures that any settings not explicitly handled above but stored in the 'settings' object are still loaded.
-      // However, explicitly loaded settings (apiKey, profileBio, etc.) will take precedence if they were also in result.settings.
-      if (result.settings && typeof result.settings === "object") {
-        console.log(
-          "[Background] loadDataFromStorage: Applying general 'settings' object from storage:",
-          result.settings
-        );
-        // Merge, ensuring that explicitly loaded keys above are not overwritten by undefined values from result.settings
-        for (const key in result.settings) {
-          if (result.settings.hasOwnProperty(key)) {
-            // Do not overwrite apiKey, profileBio etc. if result.settings has them as undefined but they were set from top-level
-            if (key === 'apiKey' && result.settings.apiKey === undefined && result.apiKey !== undefined) continue;
-            if (key === 'profileBio' && result.settings.profileBio === undefined && result.profileBio !== undefined) continue;
-            if (key === 'hashtags' && result.settings.hashtags === undefined && result.hashtags !== undefined) continue;
-            // For 'tone' from settings, it's 'defaultTone', map to userSettings.tone
-            if (key === 'defaultTone' && result.settings.defaultTone !== undefined) {
-                userSettings.tone = result.settings.defaultTone;
-            } else if (key === 'tone' && result.settings.tone !== undefined) { // if it's just 'tone'
-                userSettings.tone = result.settings.tone;
+        if (result.apiKey !== undefined) {
+          userSettings.apiKey = result.apiKey;
+          globalThis.apiKeyInitialized = true;
+        } else {
+          globalThis.apiKeyInitialized = userSettings.apiKey !== null && userSettings.apiKey !== '';
+        }
+        if (result.profileBio !== undefined) {
+          userSettings.profileBio = result.profileBio;
+        }
+        if (result.hashtags !== undefined) {
+          userSettings.hashtags = result.hashtags;
+        }
+        if (result.tone !== undefined) {
+          userSettings.tone = result.tone;
+        }
+        
+        if (result.useOwnKey === undefined) { 
+          console.log("[Background] loadDataFromStorage - useOwnKey is UNDEFINED in sync. Setting to default (true) and attempting to persist.");
+          userSettings.useOwnKey = true; 
+          chrome.storage.sync.set({ useOwnKey: true }, () => {
+            if (chrome.runtime.lastError) {
+              console.error("[Background] loadDataFromStorage - Error trying to persist default useOwnKey:", chrome.runtime.lastError.message);
+            } else {
+              console.log("[Background] loadDataFromStorage - Successfully persisted default useOwnKey: true to sync storage.");
             }
-            if (key === 'useOwnKey' && result.settings.useOwnKey === undefined && result.useOwnKey !== undefined) continue;
-            
-            // For other keys, or if the top-level result.key was undefined, take from result.settings
-            if (['apiKey', 'profileBio', 'hashtags', 'tone', 'useOwnKey'].includes(key)) {
+            // Resolve even if persisting default fails, as primary load is done.
+            // However, the outer promise depends on this nested async operation to be fully complete.
+            // This specific resolve might be tricky. For simplicity, we assume `set` is fast enough or errors are just logged.
+          });
+        } else { 
+          console.log("[Background] loadDataFromStorage - useOwnKey has a value in sync storage. Applying it:", result.useOwnKey);
+          userSettings.useOwnKey = result.useOwnKey;
+          console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+        }
+        console.log("[Background] loadDataFromStorage - userSettings.useOwnKey AFTER decision logic:", userSettings.useOwnKey);
+
+        if (result.settings && typeof result.settings === "object") {
+          console.log(
+            "[Background] loadDataFromStorage: Applying general 'settings' object from storage:",
+            result.settings
+          );
+          // Merge, ensuring that explicitly loaded keys above are not overwritten by undefined values from result.settings
+          for (const key in result.settings) {
+            if (result.settings.hasOwnProperty(key)) {
+              // Do not overwrite apiKey, profileBio etc. if result.settings has them as undefined but they were set from top-level
+              if (key === 'apiKey' && result.settings.apiKey === undefined && result.apiKey !== undefined) continue;
+              if (key === 'profileBio' && result.settings.profileBio === undefined && result.profileBio !== undefined) continue;
+              if (key === 'hashtags' && result.settings.hashtags === undefined && result.hashtags !== undefined) continue;
+              // For 'tone' from settings, it's 'defaultTone', map to userSettings.tone
+              if (key === 'defaultTone' && result.settings.defaultTone !== undefined) {
+                userSettings.tone = result.settings.defaultTone;
+              } else if (key === 'tone' && result.settings.tone !== undefined) { // if it's just 'tone'
+                userSettings.tone = result.settings.tone;
+              }
+              if (key === 'useOwnKey' && result.settings.useOwnKey === undefined && result.useOwnKey !== undefined) continue;
+              
+              // For other keys, or if the top-level result.key was undefined, take from result.settings
+              if (['apiKey', 'profileBio', 'hashtags', 'tone', 'useOwnKey'].includes(key)) {
                 if (result[key] === undefined && result.settings[key] !== undefined) {
-                    if (key === 'defaultTone') { // map 'defaultTone' from settings object to 'tone'
-                        userSettings.tone = result.settings.defaultTone;
-                    } else {
-                        userSettings[key] = result.settings[key];
-                    }
+                  if (key === 'defaultTone') { // map 'defaultTone' from settings object to 'tone'
+                    userSettings.tone = result.settings.defaultTone;
+                  } else {
+                    userSettings[key] = result.settings[key];
+                  }
                 }
-            } else if (result.settings[key] !== undefined) { // For any other non-explicitly handled keys
+              } else if (result.settings[key] !== undefined) { // For any other non-explicitly handled keys
                  userSettings[key] = result.settings[key];
+              }
             }
           }
         }
-      }
 
-      console.log(
-        "[Background] loadDataFromStorage: userSettings AFTER sync.get and processing:",
-        JSON.parse(JSON.stringify(userSettings))
-      );
-      console.log("[Background] Initial settings loaded:", userSettings);
-      console.log("[Background] Initial voice/topic data loaded."); // Assuming this means samples/topics loaded elsewhere or default
-    }
-  );
+        console.log(
+          "[Background] loadDataFromStorage: userSettings AFTER sync.get and processing:",
+          JSON.parse(JSON.stringify(userSettings))
+        );
+        console.log("[Background] Initial settings loaded:", userSettings);
+        console.log("[Background] Initial voice/topic data loaded."); // Assuming this means samples/topics loaded elsewhere or default
+        resolve();
+      }
+    );
+  });
+  
+  // After both promises have resolved, you can be sure data loading is complete.
+  return Promise.all([localGetPromise, syncGetPromise])
+    .then(() => {
+      console.log("[Background] loadDataFromStorage: All data loading attempts complete.");
+      // The function implicitly returns undefined if resolved, which is fine for await.
+    })
+    .catch(error => {
+      console.error("[Background] loadDataFromStorage: A critical error occurred during data loading:", error);
+      // Propagate the error so callers can handle it if necessary
+      throw error;
+    });
 }
-// Call it once on script load as well, as onStartup/onInstalled might not cover all reload scenarios during development
-loadDataFromStorage();
 
 /**
  * Get user profile data for display in the settings panel
