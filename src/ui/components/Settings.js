@@ -12,18 +12,32 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   const panel = document.createElement("div");
   panel.className = "settings-panel slide-in";
+  panel.style.backgroundColor = "#15202b"; // Dark background like Reply/Compose tabs
+  panel.style.color = "#fff";
 
   // Header
   const header = document.createElement("div");
   header.className = "settings-header";
+  header.style.borderBottom = "1px solid #38444d";
+  header.style.padding = "12px 16px";
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
 
   const title = document.createElement("div");
   title.className = "settings-title";
   title.textContent = "Settings";
+  title.style.fontSize = "18px";
+  title.style.fontWeight = "bold";
 
   const closeButton = document.createElement("button");
   closeButton.className = "close-button";
   closeButton.innerHTML = "&times;";
+  closeButton.style.background = "none";
+  closeButton.style.border = "none";
+  closeButton.style.fontSize = "24px";
+  closeButton.style.color = "#fff";
+  closeButton.style.cursor = "pointer";
   closeButton.addEventListener("click", onClose);
 
   header.appendChild(title);
@@ -32,6 +46,10 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   // Form
   const form = document.createElement("form");
+  form.style.padding = "16px";
+  form.style.display = "flex";
+  form.style.flexDirection = "column";
+  form.style.gap = "24px";
   form.addEventListener("submit", (e) => {
     e.preventDefault();
 
@@ -79,16 +97,29 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   // API Key
   const apiKeyGroup = document.createElement("div");
   apiKeyGroup.className = "form-group settings-section";
+  apiKeyGroup.style.display = "flex";
+  apiKeyGroup.style.flexDirection = "column";
+  apiKeyGroup.style.gap = "12px";
+  apiKeyGroup.style.backgroundColor = "#192734";
+  apiKeyGroup.style.padding = "16px";
+  apiKeyGroup.style.borderRadius = "8px";
+  apiKeyGroup.style.border = "1px solid #38444d";
 
   // Status message container
   const statusContainer = document.createElement("div");
   statusContainer.className = "status-container";
+  statusContainer.style.marginTop = "8px";
 
   // Success message
   if (message) {
     const successMessage = document.createElement("div");
     successMessage.className = "success-message";
     successMessage.textContent = message;
+    successMessage.style.padding = "8px 12px";
+    successMessage.style.borderRadius = "4px";
+    successMessage.style.backgroundColor = "rgba(40, 167, 69, 0.2)";
+    successMessage.style.color = "#9ff0b8";
+    successMessage.style.fontSize = "14px";
     statusContainer.appendChild(successMessage);
   }
 
@@ -110,6 +141,10 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   const apiKeyToggle = document.createElement("div");
   apiKeyToggle.className = "api-key-toggle";
+  apiKeyToggle.style.display = "flex";
+  apiKeyToggle.style.flexDirection = "column";
+  apiKeyToggle.style.gap = "8px";
+  apiKeyToggle.style.marginBottom = "12px";
 
   const useOwnKeyInput = document.createElement("input");
   useOwnKeyInput.type = "radio";
@@ -120,6 +155,11 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   const useOwnKeyLabel = document.createElement("label");
   useOwnKeyLabel.htmlFor = "useOwnKey";
   useOwnKeyLabel.textContent = "Use my own OpenAI API key (Free)";
+  useOwnKeyLabel.style.display = "flex";
+  useOwnKeyLabel.style.alignItems = "center";
+  useOwnKeyLabel.style.gap = "8px";
+  useOwnKeyLabel.style.fontSize = "14px";
+  useOwnKeyLabel.style.cursor = "pointer";
 
   const usePremiumInput = document.createElement("input");
   usePremiumInput.type = "radio";
@@ -130,20 +170,38 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   const usePremiumLabel = document.createElement("label");
   usePremiumLabel.htmlFor = "usePremium";
   usePremiumLabel.textContent = `Use Premium ($${PREMIUM_MONTHLY_PRICE}/month)`;
+  usePremiumLabel.style.display = "flex";
+  usePremiumLabel.style.alignItems = "center";
+  usePremiumLabel.style.gap = "8px";
+  usePremiumLabel.style.fontSize = "14px";
+  usePremiumLabel.style.cursor = "pointer";
 
   apiKeyToggle.appendChild(useOwnKeyInput);
   apiKeyToggle.appendChild(useOwnKeyLabel);
   apiKeyToggle.appendChild(usePremiumInput);
   apiKeyToggle.appendChild(usePremiumLabel);
 
+  const apiKeySectionTitle = document.createElement("h3");
+  apiKeySectionTitle.textContent = "OpenAI API Key";
+  apiKeySectionTitle.style.fontSize = "16px";
+  apiKeySectionTitle.style.fontWeight = "bold";
+  apiKeySectionTitle.style.margin = "0 0 8px 0";
+  apiKeyGroup.appendChild(apiKeySectionTitle);
+
   const apiKeyLabel = document.createElement("label");
-  apiKeyLabel.className = "form-label";
   apiKeyLabel.htmlFor = "apiKey";
-  apiKeyLabel.textContent = "Your OpenAI API Key";
+  apiKeyLabel.textContent = "Enter your API Key:";
+  apiKeyLabel.style.fontSize = "14px";
+  apiKeyLabel.style.display = "block";
+  apiKeyLabel.style.marginBottom = "4px";
 
   const apiKeyDescription = document.createElement("div");
   apiKeyDescription.className = "form-description";
-  apiKeyDescription.textContent = "Your key is stored locally and never shared.";
+  apiKeyDescription.innerHTML =
+    'You can get an OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>';
+  apiKeyDescription.style.fontSize = "13px";
+  apiKeyDescription.style.color = "#8899a6";
+  apiKeyDescription.style.marginTop = "4px";
 
   const premiumDescription = document.createElement("div");
   premiumDescription.className = "premium-description";
@@ -157,13 +215,20 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   `;
 
   const apiKeyInput = document.createElement("input");
-  apiKeyInput.className = "form-input";
   apiKeyInput.type = "password";
   apiKeyInput.id = "apiKey";
   apiKeyInput.name = "apiKey";
+  apiKeyInput.placeholder = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
   apiKeyInput.value = settings.apiKey || "";
-  apiKeyInput.placeholder = "sk-...";
   apiKeyInput.required = settings.useOwnKey;
+  apiKeyInput.style.width = "100%";
+  apiKeyInput.style.padding = "10px 12px";
+  apiKeyInput.style.borderRadius = "4px";
+  apiKeyInput.style.border = "1px solid #38444d";
+  apiKeyInput.style.backgroundColor = "#253341";
+  apiKeyInput.style.color = "#fff";
+  apiKeyInput.style.fontSize = "14px";
+  apiKeyInput.style.boxSizing = "border-box";
 
   // Auto-select "Use my own OpenAI API key" option when API key input field is used
   apiKeyInput.addEventListener("input", (e) => {
@@ -225,12 +290,28 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   // --- Personalization Actions Section ---
   const personalizationSection = document.createElement("div");
   personalizationSection.className = "settings-section";
+  personalizationSection.style.display = "flex";
+  personalizationSection.style.flexDirection = "column";
+  personalizationSection.style.gap = "12px";
+  personalizationSection.style.backgroundColor = "#192734";
+  personalizationSection.style.padding = "16px";
+  personalizationSection.style.borderRadius = "8px";
+  personalizationSection.style.border = "1px solid #38444d";
 
   const personalizationLabel = document.createElement("h3");
-  personalizationLabel.textContent = "Personalization Data";
-  personalizationLabel.style.marginBottom = "10px";
+  personalizationLabel.textContent = "Collect X.com Data";
+  personalizationLabel.style.margin = "0";
+  personalizationLabel.style.fontSize = "16px";
+  personalizationLabel.style.fontWeight = "bold";
+
+  const personalizationDesc = document.createElement("p");
+  personalizationDesc.textContent = "Use these buttons while on your X.com profile page to collect your data for personalization. Select the appropriate tab on X.com before clicking each button.";
+  personalizationDesc.style.fontSize = "13px";
+  personalizationDesc.style.color = "#8899a6";
+  personalizationDesc.style.margin = "4px 0 8px 0";
 
   personalizationSection.appendChild(personalizationLabel);
+  personalizationSection.appendChild(personalizationDesc);
   
   // Status container for personalization actions
   const personalizationStatus = document.createElement("div");
@@ -238,7 +319,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   personalizationStatus.className = "personalization-status";
   personalizationStatus.style.display = "none";
   personalizationStatus.style.marginBottom = "10px";
-  personalizationStatus.style.padding = "8px";
+  personalizationStatus.style.padding = "10px";
   personalizationStatus.style.borderRadius = "4px";
   personalizationStatus.style.fontSize = "14px";
   personalizationStatus.style.textAlign = "center";
@@ -262,14 +343,43 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
     }, 5000);
   };
 
-  const trainVoiceButton = document.createElement("button");
-  trainVoiceButton.type = "button";
-  trainVoiceButton.id = "trainVoiceButton";
-  trainVoiceButton.textContent = "Train AI Voice (from Posts/Replies)";
-  trainVoiceButton.className = "xco-btn";
+  // Create button container for aligned buttons
+  const buttonContainer = document.createElement("div");
+  buttonContainer.style.display = "flex";
+  buttonContainer.style.flexDirection = "column";
+  buttonContainer.style.gap = "12px";
+  personalizationSection.appendChild(buttonContainer);
+  
+  // Create collect posts button
+  const collectPostsButton = document.createElement("button");
+  collectPostsButton.type = "button";
+  collectPostsButton.id = "collectPostsButton";
+  collectPostsButton.textContent = "Collect Your Posts";
+  collectPostsButton.className = "xco-btn xco-btn-outline";
+  collectPostsButton.style.backgroundColor = "#253341";
+  collectPostsButton.style.color = "#fff";
+  collectPostsButton.style.border = "1px solid #38444d";
+  collectPostsButton.style.borderRadius = "4px";
+  collectPostsButton.style.padding = "10px 16px";
+  collectPostsButton.style.fontSize = "14px";
+  collectPostsButton.style.fontWeight = "500";
+  collectPostsButton.style.cursor = "pointer";
+  collectPostsButton.style.width = "100%";
+  collectPostsButton.style.textAlign = "center";
+  
+  const collectPostsDescription = document.createElement("p");
+  collectPostsDescription.textContent = "Navigate to the 'Posts' tab on your X profile, then click this button.";
+  collectPostsDescription.style.fontSize = "12px";
+  collectPostsDescription.style.color = "#8899a6";
+  collectPostsDescription.style.margin = "0";
+  
+  const postsButtonWrapper = document.createElement("div");
+  postsButtonWrapper.appendChild(collectPostsButton);
+  postsButtonWrapper.appendChild(collectPostsDescription);
+  buttonContainer.appendChild(postsButtonWrapper);
 
-  trainVoiceButton.addEventListener("click", () => {
-    console.log("Train AI Voice button clicked");
+  collectPostsButton.addEventListener("click", () => {
+    console.log("Collect Posts button clicked");
     // Show loading message
     showPersonalizationStatus("Collecting your posts for voice training...");
     
@@ -312,13 +422,105 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
     });
   });
 
-  personalizationSection.appendChild(trainVoiceButton);
-
+  // Create collect replies button
+  const collectRepliesButton = document.createElement("button");
+  collectRepliesButton.type = "button";
+  collectRepliesButton.id = "collectRepliesButton";
+  collectRepliesButton.textContent = "Collect Your Replies";
+  collectRepliesButton.className = "xco-btn xco-btn-outline";
+  collectRepliesButton.style.backgroundColor = "#253341";
+  collectRepliesButton.style.color = "#fff";
+  collectRepliesButton.style.border = "1px solid #38444d";
+  collectRepliesButton.style.borderRadius = "4px";
+  collectRepliesButton.style.padding = "10px 16px";
+  collectRepliesButton.style.fontSize = "14px";
+  collectRepliesButton.style.fontWeight = "500";
+  collectRepliesButton.style.cursor = "pointer";
+  collectRepliesButton.style.width = "100%";
+  collectRepliesButton.style.textAlign = "center";
+  
+  const collectRepliesDescription = document.createElement("p");
+  collectRepliesDescription.textContent = "Navigate to the 'Replies' tab on your X profile, then click this button.";
+  collectRepliesDescription.style.fontSize = "12px";
+  collectRepliesDescription.style.color = "#8899a6";
+  collectRepliesDescription.style.margin = "0";
+  
+  const repliesButtonWrapper = document.createElement("div");
+  repliesButtonWrapper.appendChild(collectRepliesButton);
+  repliesButtonWrapper.appendChild(collectRepliesDescription);
+  buttonContainer.appendChild(repliesButtonWrapper);
+  
+  collectRepliesButton.addEventListener("click", () => {
+    console.log("Collect Replies button clicked");
+    // Show loading message
+    showPersonalizationStatus("Collecting your replies for voice training...");
+    
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].url) {
+        chrome.runtime.sendMessage(
+          { action: "collectVoiceTrainingData", activeTabUrl: tabs[0].url },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                "Error sending message for voice training:",
+                chrome.runtime.lastError.message
+              );
+              showPersonalizationStatus("Error: Could not connect to page. Refresh the page and try again.", true);
+            } else if (response && response.error) {
+              console.error(
+                "Error from content script (voice training):",
+                response.error
+              );
+              showPersonalizationStatus(`Error: ${response.error}`, true);
+            } else if (response && response.status) {
+              console.log("Success (voice training):", response.status);
+              showPersonalizationStatus(response.status);
+              
+              // Trigger refresh of user profile data section if present
+              setTimeout(() => {
+                const profileDataSection = document.querySelector(".data-stats-container");
+                if (profileDataSection) {
+                  const refreshButton = profileDataSection.querySelector("button");
+                  if (refreshButton) refreshButton.click();
+                }
+              }, 1000); // Wait 1 second to ensure background processing is complete
+            }
+          }
+        );
+      } else {
+        console.error("Could not get active tab URL for voice training.");
+        showPersonalizationStatus("Error: Could not identify current tab. Try again.", true);
+      }
+    });
+  });
+  
+  // Create collect likes button
   const updateInterestsButton = document.createElement("button");
   updateInterestsButton.type = "button";
   updateInterestsButton.id = "updateInterestsButton";
-  updateInterestsButton.textContent = "Update AI Interests (from Likes)";
-  updateInterestsButton.className = "xco-btn";
+  updateInterestsButton.textContent = "Collect Your Likes";
+  updateInterestsButton.className = "xco-btn xco-btn-outline";
+  updateInterestsButton.style.backgroundColor = "#253341";
+  updateInterestsButton.style.color = "#fff";
+  updateInterestsButton.style.border = "1px solid #38444d";
+  updateInterestsButton.style.borderRadius = "4px";
+  updateInterestsButton.style.padding = "10px 16px";
+  updateInterestsButton.style.fontSize = "14px";
+  updateInterestsButton.style.fontWeight = "500";
+  updateInterestsButton.style.cursor = "pointer";
+  updateInterestsButton.style.width = "100%";
+  updateInterestsButton.style.textAlign = "center";
+  
+  const likesButtonDescription = document.createElement("p");
+  likesButtonDescription.textContent = "Navigate to the 'Likes' tab on your X profile, then click this button.";
+  likesButtonDescription.style.fontSize = "12px";
+  likesButtonDescription.style.color = "#8899a6";
+  likesButtonDescription.style.margin = "0";
+  
+  const likesButtonWrapper = document.createElement("div");
+  likesButtonWrapper.appendChild(updateInterestsButton);
+  likesButtonWrapper.appendChild(likesButtonDescription);
+  buttonContainer.appendChild(likesButtonWrapper);
 
   updateInterestsButton.addEventListener("click", () => {
     console.log("Update AI Interests button clicked");
@@ -364,17 +566,80 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
     });
   });
 
-  personalizationSection.appendChild(updateInterestsButton);
+  // Don't need this line anymore as we're using buttonContainer
+  // personalizationSection.appendChild(updateInterestsButton);
 
   form.appendChild(personalizationSection);
+
+  // Profile Data Section - Move this up in the flow as requested
+  const profileDataSection = document.createElement("div");
+  profileDataSection.className = "settings-section";
+  profileDataSection.style.display = "flex";
+  profileDataSection.style.flexDirection = "column";
+  profileDataSection.style.gap = "12px";
+  profileDataSection.style.backgroundColor = "#192734";
+  profileDataSection.style.padding = "16px";
+  profileDataSection.style.borderRadius = "8px";
+  profileDataSection.style.border = "1px solid #38444d";
+
+  const profileDataLabel = document.createElement("h3");
+  profileDataLabel.textContent = "Your X.com Data";
+  profileDataLabel.style.margin = "0";
+  profileDataLabel.style.fontSize = "16px";
+  profileDataLabel.style.fontWeight = "bold";
+
+  const profileDataDescription = document.createElement("p");
+  profileDataDescription.className = "form-description";
+  profileDataDescription.textContent = "This is the data collected from your X.com profile to help personalize AI content generation.";
+  profileDataDescription.style.fontSize = "13px";
+  profileDataDescription.style.color = "#8899a6";
+  profileDataDescription.style.margin = "4px 0 8px 0";
+
+  // Container for profile data stats
+  const dataStatsContainer = document.createElement("div");
+  dataStatsContainer.className = "data-stats-container";
+  dataStatsContainer.style.display = "flex";
+  dataStatsContainer.style.flexDirection = "column";
+  dataStatsContainer.style.gap = "12px";
+  dataStatsContainer.style.padding = "16px";
+  dataStatsContainer.style.backgroundColor = "#253341";
+  dataStatsContainer.style.color = "#e4e6eb";
+  dataStatsContainer.style.borderRadius = "8px";
+  dataStatsContainer.style.border = "1px solid #38444d";
+  
+  // Loading indicator for profile data
+  const loadingIndicator = document.createElement("div");
+  loadingIndicator.textContent = "Loading your profile data...";
+  loadingIndicator.style.textAlign = "center";
+  loadingIndicator.style.padding = "12px";
+  loadingIndicator.style.color = "#e4e6eb";
+  
+  dataStatsContainer.appendChild(loadingIndicator);
+  
+  // Add elements to the profile data section
+  profileDataSection.appendChild(profileDataLabel);
+  profileDataSection.appendChild(profileDataDescription);
+  profileDataSection.appendChild(dataStatsContainer);
+  
+  form.appendChild(profileDataSection);
 
   // Profile Bio Section
   const profileBioSection = document.createElement("div");
   profileBioSection.className = "settings-section";
+  profileBioSection.style.display = "flex";
+  profileBioSection.style.flexDirection = "column";
+  profileBioSection.style.gap = "12px";
+  profileBioSection.style.backgroundColor = "#192734";
+  profileBioSection.style.padding = "16px";
+  profileBioSection.style.borderRadius = "8px";
+  profileBioSection.style.border = "1px solid #38444d";
 
-  const profileBioLabel = document.createElement("label");
+  const profileBioLabel = document.createElement("h3");
   profileBioLabel.htmlFor = "profileBio";
-  profileBioLabel.textContent = "Profile Bio";
+  profileBioLabel.textContent = "Additional Bio Information";
+  profileBioLabel.style.margin = "0";
+  profileBioLabel.style.fontSize = "16px";
+  profileBioLabel.style.fontWeight = "bold";
 
   const profileBioTextarea = document.createElement("textarea");
   profileBioTextarea.id = "profileBio";
@@ -382,56 +647,66 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   profileBioTextarea.rows = 3;
   profileBioTextarea.placeholder = "Describe yourself and your interests...";
   profileBioTextarea.value = settings.profileBio || "";
+  profileBioTextarea.style.width = "100%";
+  profileBioTextarea.style.padding = "10px 12px";
+  profileBioTextarea.style.borderRadius = "4px";
+  profileBioTextarea.style.border = "1px solid #38444d";
+  profileBioTextarea.style.backgroundColor = "#253341";
+  profileBioTextarea.style.color = "#fff";
+  profileBioTextarea.style.fontSize = "14px";
+  profileBioTextarea.style.boxSizing = "border-box";
+  profileBioTextarea.style.resize = "vertical";
 
   const profileBioDescription = document.createElement("p");
   profileBioDescription.className = "form-description";
-  profileBioDescription.textContent =
-    "This helps personalize content generation to match your voice.";
+  profileBioDescription.textContent = "This helps personalize content generation to match your voice.";
+  profileBioDescription.style.fontSize = "13px";
+  profileBioDescription.style.color = "#8899a6";
+  profileBioDescription.style.margin = "0";
 
   profileBioSection.appendChild(profileBioLabel);
   profileBioSection.appendChild(profileBioTextarea);
   profileBioSection.appendChild(profileBioDescription);
   form.appendChild(profileBioSection);
 
-  // Favorite Hashtags Section
-  const hashtagsSection = document.createElement("div");
-  hashtagsSection.className = "settings-section";
+  // We've been asked to remove the hashtags section, so we'll skip it entirely
 
-  const hashtagsLabel = document.createElement("label");
-  hashtagsLabel.htmlFor = "hashtags";
-  hashtagsLabel.textContent = "Favorite Hashtags";
-
-  const hashtagsInput = document.createElement("input");
-  hashtagsInput.type = "text";
-  hashtagsInput.id = "hashtags";
-  hashtagsInput.name = "hashtags";
-  hashtagsInput.placeholder = "#tech, #AI, #webdev";
-  hashtagsInput.value = (settings.hashtags || []).join(", ");
-
-  const hashtagsDescription = document.createElement("p");
-  hashtagsDescription.className = "form-description";
-  hashtagsDescription.textContent = "Comma-separated list of hashtags you commonly use.";
-
-  hashtagsSection.appendChild(hashtagsLabel);
-  hashtagsSection.appendChild(hashtagsInput);
-  hashtagsSection.appendChild(hashtagsDescription);
-  form.appendChild(hashtagsSection);
-
-  // Default Tone Section
+  // Default Tone Section (disabled as requested)
   const toneSection = document.createElement("div");
   toneSection.className = "settings-section";
+  toneSection.style.display = "flex";
+  toneSection.style.flexDirection = "column";
+  toneSection.style.gap = "12px";
+  toneSection.style.backgroundColor = "#192734";
+  toneSection.style.padding = "16px";
+  toneSection.style.borderRadius = "8px";
+  toneSection.style.border = "1px solid #38444d";
+  toneSection.style.opacity = "0.7"; // Visually indicate it's disabled
 
-  const toneLabel = document.createElement("label");
+  const toneLabel = document.createElement("h3");
   toneLabel.htmlFor = "defaultTone";
   toneLabel.textContent = "Default Tone";
+  toneLabel.style.margin = "0";
+  toneLabel.style.fontSize = "16px";
+  toneLabel.style.fontWeight = "bold";
+  
+  const toneDescription = document.createElement("p");
+  toneDescription.className = "form-description";
+  toneDescription.textContent = "Additional tone options coming soon.";
+  toneDescription.style.fontSize = "13px";
+  toneDescription.style.color = "#8899a6";
+  toneDescription.style.margin = "4px 0 8px 0";
 
   const toneValue = document.createElement("div");
   toneValue.className = "static-value";
   toneValue.textContent = "Neutral";
-  toneValue.style.padding = "8px 12px";
-  toneValue.style.backgroundColor = "#1E1E1E";
+  toneValue.style.padding = "10px 12px";
+  toneValue.style.backgroundColor = "#253341";
   toneValue.style.borderRadius = "4px";
   toneValue.style.color = "#E4E6EB";
+  toneValue.style.border = "1px solid #38444d";
+  toneValue.style.fontSize = "14px";
+  toneValue.style.pointerEvents = "none"; // Make it unclickable
   
   // Hidden input to maintain the form value
   const toneInput = document.createElement("input");
@@ -441,6 +716,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   toneInput.value = "neutral";
 
   toneSection.appendChild(toneLabel);
+  toneSection.appendChild(toneDescription);
   toneSection.appendChild(toneValue);
   toneSection.appendChild(toneInput);
   form.appendChild(toneSection);
@@ -448,16 +724,34 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   // Permissions Settings Section
   const permissionsSection = document.createElement("div");
   permissionsSection.className = "settings-section";
+  permissionsSection.style.display = "flex";
+  permissionsSection.style.flexDirection = "column";
+  permissionsSection.style.gap = "12px";
+  permissionsSection.style.backgroundColor = "#192734";
+  permissionsSection.style.padding = "16px";
+  permissionsSection.style.borderRadius = "8px";
+  permissionsSection.style.border = "1px solid #38444d";
 
-  const permissionsLabel = document.createElement("h3"); // Using h3 for section title
-  permissionsLabel.textContent = "Permission Settings";
-  permissionsLabel.style.marginBottom = "10px";
+  const permissionsLabel = document.createElement("h3");
+  permissionsLabel.textContent = "Notifications & Permissions";
+  permissionsLabel.style.margin = "0";
+  permissionsLabel.style.fontSize = "16px";
+  permissionsLabel.style.fontWeight = "bold";
 
   const managePermissionsButton = document.createElement("button");
   managePermissionsButton.type = "button"; // Important: type="button" to prevent form submission
   managePermissionsButton.textContent = "Manage Extension Site Permissions (e.g., Microphone)";
-  managePermissionsButton.className = "xco-btn xco-btn-outline"; // Using existing button styles
+  managePermissionsButton.className = "xco-btn xco-btn-outline";
+  managePermissionsButton.style.backgroundColor = "#253341";
+  managePermissionsButton.style.color = "#fff";
+  managePermissionsButton.style.border = "1px solid #38444d";
+  managePermissionsButton.style.borderRadius = "4px";
+  managePermissionsButton.style.padding = "10px 16px";
+  managePermissionsButton.style.fontSize = "14px";
+  managePermissionsButton.style.fontWeight = "500";
+  managePermissionsButton.style.cursor = "pointer";
   managePermissionsButton.style.width = "100%";
+  managePermissionsButton.style.textAlign = "center";
   managePermissionsButton.addEventListener("click", () => {
     const extensionId = chrome.runtime.id;
     const settingsUrl = `chrome://settings/content/siteDetails?site=chrome-extension://${extensionId}`;
@@ -467,54 +761,17 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   const permissionsDescription = document.createElement("p");
   permissionsDescription.className = "form-description";
   permissionsDescription.innerHTML = 
-    'If you encounter issues with microphone access, ensure it is set to <strong>Allow</strong> for this extension. <br/>Chrome may not prompt for permission if set to "Ask".';
+    'If you encounter issues with microphone access, ensure it is set to <strong>Allow</strong> for this extension. <br/>Chrome may not prompt for permission if set to "Ask".'; 
+  permissionsDescription.style.fontSize = "13px";
+  permissionsDescription.style.color = "#8899a6";
+  permissionsDescription.style.margin = "8px 0 0 0";
 
   permissionsSection.appendChild(permissionsLabel);
   permissionsSection.appendChild(managePermissionsButton);
   permissionsSection.appendChild(permissionsDescription);
   form.appendChild(permissionsSection);
   
-  // Profile Data Section
-  const profileDataSection = document.createElement("div");
-  profileDataSection.className = "settings-section";
-  profileDataSection.style.marginTop = "24px";
-  profileDataSection.style.borderTop = "1px solid #eee";
-  profileDataSection.style.paddingTop = "16px";
-
-  const profileDataLabel = document.createElement("h3");
-  profileDataLabel.textContent = "Your X.com Data";
-  profileDataLabel.style.marginBottom = "10px";
-
-  const profileDataDescription = document.createElement("p");
-  profileDataDescription.className = "form-description";
-  profileDataDescription.textContent = "This is the data collected from your X.com profile to help personalize AI content generation.";
-
-  // Container for profile data stats
-  const dataStatsContainer = document.createElement("div");
-  dataStatsContainer.className = "data-stats-container";
-  dataStatsContainer.style.display = "flex";
-  dataStatsContainer.style.flexDirection = "column";
-  dataStatsContainer.style.gap = "8px";
-  dataStatsContainer.style.marginTop = "16px";
-  dataStatsContainer.style.padding = "16px";
-  dataStatsContainer.style.backgroundColor = "#1d2226"; // Dark background matching the app theme
-  dataStatsContainer.style.color = "#e4e6eb"; // Light text for dark background
-  dataStatsContainer.style.borderRadius = "8px";
-  dataStatsContainer.style.border = "1px solid #2d3741"; // Subtle border
-  
-  // Loading indicator for profile data
-  const loadingIndicator = document.createElement("div");
-  loadingIndicator.textContent = "Loading your profile data...";
-  loadingIndicator.style.textAlign = "center";
-  loadingIndicator.style.padding = "8px";
-  loadingIndicator.style.color = "#e4e6eb"; // Light text color for dark background
-  
-  dataStatsContainer.appendChild(loadingIndicator);
-  
-  // Add elements to the profile data section
-  profileDataSection.appendChild(profileDataLabel);
-  profileDataSection.appendChild(profileDataDescription);
-  profileDataSection.appendChild(dataStatsContainer);
+  // This section has been moved up as requested - we already created and positioned it earlier
   
   // Fetch user profile data and update the UI
   getUserProfileData()
@@ -656,6 +913,24 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   saveButton.textContent = "Save Settings";
   saveButton.className = "xco-btn";
   saveButton.style.marginTop = "24px";
+  saveButton.style.backgroundColor = "#1d9bf0"; // Twitter blue
+  saveButton.style.color = "#fff";
+  saveButton.style.border = "none";
+  saveButton.style.borderRadius = "4px";
+  saveButton.style.padding = "12px 16px";
+  saveButton.style.fontSize = "15px";
+  saveButton.style.fontWeight = "600";
+  saveButton.style.cursor = "pointer";
+  saveButton.style.width = "100%";
+  saveButton.style.textAlign = "center";
+  
+  saveButton.addEventListener("mouseover", () => {
+    saveButton.style.backgroundColor = "#1a91da"; // Slightly darker on hover
+  });
+  
+  saveButton.addEventListener("mouseout", () => {
+    saveButton.style.backgroundColor = "#1d9bf0";
+  });
   form.appendChild(saveButton);
 
   panel.appendChild(form);
