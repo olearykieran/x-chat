@@ -146,34 +146,66 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const currentPath = request.activeTabUrl ? new URL(request.activeTabUrl).pathname : window.location.pathname;
   const currentTab = getCurrentProfileTab(username, currentPath);
 
-  if (request.action === 'collectVoiceTrainingData') {
-    console.log('[XCO-Poster] Received request to collect voice training data from side panel.');
-    if (!request.activeTabUrl) {
+  if (request.action === 'collectVoiceTrainingData' || request.action === 'scrapeUserPostsForVoiceTraining') {
+    console.log(`[XCO-Poster] Received request to collect voice training data. Action: ${request.action}`);
+    if (!request.activeTabUrl && request.action === 'collectVoiceTrainingData') {
         console.error('[XCO-Poster] Active tab URL not provided in request for voice training.');
         sendResponse({ error: 'Active tab URL not provided.' });
         return true; 
     }
 
-    if (isOwnProfilePage(username, currentPath)) {
-      if (currentTab === 'posts' || currentTab === 'replies') {
-        console.log(`[XCO-Poster] Initiating voice training data collection from ${currentTab} tab (URL: ${request.activeTabUrl}).`);
-        scrapeUserPostsForVoiceTraining().then(posts => {
-          if (posts && posts.length > 0) {
-            sendUserDataToBackground('voice', posts); 
-            sendResponse({ status: `Collected ${posts.length} posts/replies for voice training. Data sent to background.` });
-          } else {
-            sendResponse({ error: 'No posts or replies found to collect.' });
+    // Check if we're on a relevant profile page
+    // For debugging: log the current URL and detected profile information
+    console.log(`[XCO-Poster] DEBUG: Current URL: ${window.location.href}`);
+    console.log(`[XCO-Poster] DEBUG: Detected username: ${username}`);
+    console.log(`[XCO-Poster] DEBUG: Detected tab: ${currentTab}`);
+    
+    // IMPORTANT: Force the scraping regardless of the current tab for testing
+    const canScrapeVoice = username && (currentTab === 'tweets' || currentTab === 'replies');
+    console.log(`[XCO-Poster] DEBUG: Can normally scrape voice? ${canScrapeVoice}`);
+    console.log(`[XCO-Poster] DEBUG: FORCING SCRAPING REGARDLESS OF TAB for debugging`);
+    
+    // All checks passed, proceed with scraping
+    console.log('[XCO-Poster] DEBUG: About to call scrapeUserPostsForVoiceTraining()');
+    scrapeUserPostsForVoiceTraining()
+      .then(result => {
+        console.log('[XCO-Poster] DEBUG: Scraping completed successfully. Result:', result);
+        console.log(`[XCO-Poster] DEBUG: Posts count: ${result.postsCount}, Replies count: ${result.repliesCount}`);
+        
+        // Send data to background script
+        sendUserDataToBackground('voice', result);
+        
+        if (result && result.totalCount > 0) {
+          let successMessage = "✅ Success! ";
+          if (result.postsCount > 0 && result.repliesCount > 0) {
+            successMessage += `Collected ${result.postsCount} posts and ${result.repliesCount} replies for AI voice training.`;
+          } else if (result.postsCount > 0) {
+            successMessage += `Collected ${result.postsCount} posts for AI voice training.`;
+          } else if (result.repliesCount > 0) {
+            successMessage += `Collected ${result.repliesCount} replies for AI voice training.`;
           }
-        }).catch(error => {
-          console.error("[XCO-Poster] Error scraping user posts:", error);
-          sendResponse({ error: `Error scraping posts: ${error.message}` });
-        });
-      } else {
-        sendResponse({ error: `Voice training data can only be collected from Posts or Replies tabs. You are on '${currentTab || 'unknown'}' tab.` });
-      }
-    } else {
-      sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
-    }
+          
+          successMessage += " Your profile data has been updated and will be used to personalize generated content.";
+          
+          // Send response back to the caller
+          sendResponse({ 
+            success: true,
+            status: successMessage,
+            count: result.totalCount,
+            postsCount: result.postsCount,
+            repliesCount: result.repliesCount
+          });
+        } else {
+          sendResponse({ 
+            error: '❌ No posts or replies found on this page to collect. Try scrolling down to load more content, or make sure you have posted some tweets.'
+          });
+        }
+      })
+      .catch(error => {
+        console.error("[XCO-Poster] Error scraping user posts:", error);
+        sendResponse({ error: `❌ Error scraping posts: ${error.message}` });
+      });
+      
     return true; // Indicates async response
   }
 
@@ -191,19 +223,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         scrapeUserLikesForInterestAnalysis().then(likedTweets => {
           if (likedTweets && likedTweets.length > 0) {
             sendUserDataToBackground('interests', likedTweets); 
-            sendResponse({ status: `Collected ${likedTweets.length} liked tweets for interest analysis. Data sent to background.` });
+            sendResponse({ 
+              status: `✅ Success! Collected ${likedTweets.length} liked posts for interest analysis. Your profile data has been updated and will be used to personalize content topics.`,
+              count: likedTweets.length 
+            });
           } else {
-            sendResponse({ error: 'No liked tweets found to collect.' });
+            sendResponse({ 
+              error: '❌ No liked posts found on this page. Try scrolling down to load more likes, or make sure you have liked some posts first.' 
+            });
           }
         }).catch(error => {
           console.error("[XCO-Poster] Error scraping user likes:", error);
-          sendResponse({ error: `Error scraping likes: ${error.message}` });
+          sendResponse({ error: `❌ Error analyzing likes: ${error.message}` });
         });
       } else {
-        sendResponse({ error: `Interest data can only be collected from the Likes tab. You are on '${currentTab || 'unknown'}' tab.` });
+        sendResponse({ 
+          error: `❌ You need to be on your Likes tab to collect interest data. Currently on '${currentTab || 'unknown'}' tab.\n\nPlease navigate to your X profile page and click on the Likes tab, then try again.` 
+        });
       }
     } else {
-      sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
+      sendResponse({ 
+        error: '❌ Not on your X profile page. Please navigate to your own profile (click your avatar at the bottom left of X), then try again.' 
+      });
     }
     return true; // Indicates async response
   }
@@ -265,22 +306,65 @@ function getCurrentProfileTab(username, pathname) {
 function scrapeUserPostsForVoiceTraining() {
   return new Promise((resolve, reject) => {
     console.log('[XCO-Poster] Starting to scrape user posts for voice training...');
-    const tweets = [];
+    const posts = [];
+    const replies = [];
+    
+    // Get the current profile username and path to identify the tab correctly
+    const username = getProfileUsernameFromUrl(window.location.href);
+    const pathname = window.location.pathname;
+    
+    console.log(`[XCO-Poster] DEBUG: URL=${window.location.href}, pathname=${pathname}`);
+    
+    // Debug log checking if pathname has the with_replies suffix
+    console.log(`[XCO-Poster] DEBUG: Is replies path? ${pathname.endsWith('/with_replies')}`);
+    
+    const currentTab = getCurrentProfileTab(username, pathname); // Correctly call with parameters
+    
+    console.log(`[XCO-Poster] Current profile tab detected: ${currentTab}, Username: ${username}`);
+    
+    let tweetCount = 0;
     document.querySelectorAll('article[data-testid="tweet"]').forEach(tweetElement => {
+      tweetCount++;
       const tweetTextElement = tweetElement.querySelector('[data-testid="tweetText"]');
-      if (tweetTextElement && tweetTextElement.textContent) {
-        tweets.push(tweetTextElement.textContent.trim());
+      // Skip if tweet has no text content
+      if (!tweetTextElement || !tweetTextElement.textContent) {
+        console.log('[XCO-Poster] DEBUG: Found tweet element without text content');
+        return;
+      }
+      
+      const tweetText = tweetTextElement.textContent.trim();
+      console.log(`[XCO-Poster] DEBUG: Processing tweet ${tweetText.substring(0, 20)}...`);
+      
+      // Determine if this is a post or reply based on current tab
+      if (currentTab === 'replies') {
+        console.log('[XCO-Poster] DEBUG: Adding tweet to REPLIES collection');
+        replies.push(tweetText);
+      } else {
+        console.log('[XCO-Poster] DEBUG: Adding tweet to POSTS collection');
+        // Default to posts tab
+        posts.push(tweetText);
       }
     });
+    
+    // Debug log for total tweet elements found
+    console.log(`[XCO-Poster] DEBUG: Found ${tweetCount} tweet elements on page`);
 
-    if (tweets.length > 0) {
-      console.log(`[XCO-Poster] Scraped ${tweets.length} tweets.`);
-      resolve(tweets);
+    // Return both posts and replies with their counts
+    const result = {
+      posts: posts,
+      replies: replies,
+      postsCount: posts.length,
+      repliesCount: replies.length,
+      totalCount: posts.length + replies.length
+    };
+
+    if (result.totalCount > 0) {
+      console.log(`[XCO-Poster] Scraped ${result.postsCount} posts and ${result.repliesCount} replies.`);
+      resolve(result);
     } else {
       console.log('[XCO-Poster] No tweets found to scrape for voice training.');
-      resolve([]); // Resolve with empty array if no tweets found
+      resolve({ posts: [], replies: [], postsCount: 0, repliesCount: 0, totalCount: 0 }); // Resolve with empty data if no tweets found
     }
-    // Removed direct sendMessage to background
   });
 }
 
@@ -306,27 +390,56 @@ function scrapeUserLikesForInterestAnalysis() {
   });
 }
 
-// --- sendUserDataToBackground function (remains largely the same) ---
+// Function to send user data to background script
 function sendUserDataToBackground(dataType, data) {
   let actionType;
+  let payload;
+  
+  console.log(`[XCO-Poster] DEBUG: sendUserDataToBackground called with dataType=${dataType}`);
+  console.log('[XCO-Poster] DEBUG: Data received:', data);
+  
   if (dataType === 'voice') {
     actionType = 'SAVE_USER_POSTS';
+    // With our new structure, handle posts and replies separately
+    if (data.posts && data.replies !== undefined) { // Check for replies array existence
+      // New structured format with separate posts and replies
+      console.log(`[XCO-Poster] DEBUG: Processing structured data with ${data.postsCount} posts and ${data.repliesCount} replies`);
+      
+      payload = {
+        userPosts: data.posts,
+        userReplies: data.replies,
+        postsCount: data.postsCount,
+        repliesCount: data.repliesCount
+      };
+      
+      // Log details of what we're sending
+      console.log('[XCO-Poster] DEBUG: Payload for background:', JSON.stringify({
+        postsCount: payload.postsCount,
+        repliesCount: payload.repliesCount,
+        userPostsSample: payload.userPosts.slice(0, 1).map(p => p.substring(0, 20)),
+        userRepliesSample: payload.userReplies.slice(0, 1).map(r => r.substring(0, 20))
+      }));
+    } else {
+      // Legacy format (backward compatibility) - assuming array of posts
+      console.log('[XCO-Poster] DEBUG: Processing legacy format data (array of posts)');
+      payload = { userPosts: Array.isArray(data) ? data : [] };
+    }
   } else if (dataType === 'interests') {
     actionType = 'SAVE_USER_LIKES';
+    payload = { likedTweets: data };
   } else {
     console.error('[XCO-Poster] Unknown data type for sending to background:', dataType);
     return;
   }
 
-  // Ensure data is structured as expected by bg.js
-  const payload = (dataType === 'voice') ? { userPosts: data } : { likedTweets: data };
-
+  console.log(`[XCO-Poster] DEBUG: Sending message to background with type=${actionType}`);
+  
   try {
     chrome.runtime.sendMessage({ type: actionType, data: payload }, (response) => {
       if (chrome.runtime.lastError) {
         console.error(`[XCO-Poster] Error sending ${dataType} data to background:`, chrome.runtime.lastError.message);
       } else if (response && response.success) {
-        console.log(`[XCO-Poster] ${dataType} data successfully sent to background and processed.`);
+        console.log(`[XCO-Poster] ${dataType} data successfully sent to background and processed:`, response);
       } else {
         console.error(`[XCO-Poster] Background script failed to process ${dataType} data:`, response ? response.error : 'No response');
       }

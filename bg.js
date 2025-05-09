@@ -90,6 +90,7 @@ let userSettings = {
 console.log("[Background] Initial userSettings.useOwnKey after DEFAULT_SETTINGS:", userSettings.useOwnKey);
 
 let userWritingSamples = []; // To store scraped user posts for voice training
+let userReplies = []; // To store scraped user replies for voice training
 let userLikedTopicsRaw = []; // To store scraped liked posts for topic generation
 
 // Load settings and other stored data on startup
@@ -105,23 +106,40 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log("[Background] onInstalled triggered. Reason:", details.reason);
 
-  if (details.reason === "install" || details.reason === "update") {
-    console.log("[Background] onInstalled: Attempting to clear chrome.storage.sync due to install/update.");
+  // Only perform full storage clear on fresh install, not on update/reload
+  if (details.reason === "install") {
+    console.log("[Background] onInstalled: Fresh install detected. Setting default values.");
+    // For fresh install, we'll set default values rather than clearing everything
     try {
+      // Fetch any existing API key and settings before setting defaults
+      const existingData = await new Promise((resolve) => {
+        chrome.storage.sync.get(["apiKey", "useOwnKey"], (result) => {
+          resolve(result);
+        });
+      });
+      
+      // Set default values while preserving any existing API key
+      const defaultSettings = {
+        useOwnKey: existingData.useOwnKey !== undefined ? existingData.useOwnKey : true,
+        apiKey: existingData.apiKey || userSettings.apiKey
+      };
+      
       await new Promise((resolve, reject) => {
-        chrome.storage.sync.clear(() => {
+        chrome.storage.sync.set(defaultSettings, () => {
           if (chrome.runtime.lastError) {
-            console.error("[Background] onInstalled: Error clearing sync storage:", chrome.runtime.lastError.message);
+            console.error("[Background] onInstalled: Error setting default values:", chrome.runtime.lastError.message);
             reject(chrome.runtime.lastError);
           } else {
-            console.log("[Background] onInstalled: chrome.storage.sync CLEARED successfully.");
+            console.log("[Background] onInstalled: Default values set successfully:", defaultSettings);
             resolve();
           }
         });
       });
     } catch (error) {
-      console.error("[Background] onInstalled: Exception during sync storage clear:", error);
+      console.error("[Background] onInstalled: Exception during setting defaults:", error);
     }
+  } else {
+    console.log("[Background] onInstalled: Update/reload detected. Preserving existing settings.");
   }
   // Now, after attempting to clear, load data.
   // This ensures that loadDataFromStorage runs after the clear attempt.
@@ -172,6 +190,201 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     // console.log('[Background] Message received inside async IIFE:', message); // For debugging
 
+    // Function to inject and execute content script directly
+    async function injectAndExecuteContentScript(tabId, url) {
+      console.log(`[Background] Injecting content script directly into tab ${tabId}`);
+      
+      try {
+        // Check if we need to refresh the page first
+        if (!url.includes('x.com') && !url.includes('twitter.com')) {
+          console.log('[Background] Tab is not on X.com, cannot inject content script');
+          return false;
+        }
+        
+        // Execute the scrapeUserPostsForVoiceTraining function directly
+        const result = await chrome.scripting.executeScript({
+          target: { tabId },
+          function: () => {
+            console.log('[XCO-Injected] Direct execution of voice training scraper');
+            
+            // Check if we're on a profile page
+            const url = window.location.href;
+            const isProfilePage = url.match(/\/[A-Za-z0-9_]+(\/with_replies)?$/);
+            
+            if (!isProfilePage) {
+              console.error('[XCO-Injected] Not on a profile page');
+              return { error: 'Not on a profile page. Please navigate to your X profile.' };
+            }
+            
+            // Basic implementation to scrape posts/replies
+            const posts = [];
+            const replies = [];
+            
+            // Determine if we're on the replies tab
+            const isRepliesTab = window.location.pathname.endsWith('/with_replies');
+            console.log(`[XCO-Injected] On replies tab: ${isRepliesTab}`);
+            
+            // Scrape tweets
+            document.querySelectorAll('article[data-testid="tweet"]').forEach(tweetElement => {
+              const tweetTextElement = tweetElement.querySelector('[data-testid="tweetText"]');
+              if (tweetTextElement && tweetTextElement.textContent) {
+                const tweetText = tweetTextElement.textContent.trim();
+                if (isRepliesTab) {
+                  replies.push(tweetText);
+                } else {
+                  posts.push(tweetText);
+                }
+              }
+            });
+            
+            const result = {
+              posts: posts,
+              replies: replies,
+              postsCount: posts.length,
+              repliesCount: replies.length,
+              totalCount: posts.length + replies.length
+            };
+            
+            console.log(`[XCO-Injected] Scraped ${result.postsCount} posts and ${result.repliesCount} replies`);
+            return result;
+          }
+        });
+        
+        if (!result || !result[0] || result[0].result.error) {
+          console.error('[Background] Direct script execution failed:', result);
+          return { error: result[0]?.result?.error || 'Script execution failed' };
+        }
+        
+        console.log('[Background] Direct script execution result:', result[0].result);
+        return result[0].result;
+      } catch (error) {
+        console.error('[Background] Error injecting script:', error);
+        return { error: `Error injecting script: ${error.message}` };
+      }
+    }
+
+    // Handle collectVoiceTrainingData action from settings
+    if (message.action === "collectVoiceTrainingData") {
+      console.log("[Background] Received collectVoiceTrainingData action from settings", message);
+      
+      // Get the active tab
+      try {
+        // First get all tabs, then find the one with the matching URL
+        const tabs = await chrome.tabs.query({});
+        console.log(`[Background] Found ${tabs.length} tabs total`);
+        
+        // Try to find tab with the matching URL if provided, otherwise use active tab
+        let targetTab = null;
+        
+        if (message.activeTabUrl) {
+          console.log(`[Background] Looking for tab with URL: ${message.activeTabUrl}`);
+          // Find tab with the matching URL
+          targetTab = tabs.find(tab => tab.url && tab.url.includes(message.activeTabUrl));
+        }
+        
+        // Fallback to active tab if no matching URL or no URL provided
+        if (!targetTab) {
+          console.log("[Background] No matching tab found, using active tab");
+          const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          targetTab = activeTabs[0];
+        }
+        
+        if (!targetTab || !targetTab.id) {
+          console.error("[Background] No valid tab found for voice data collection");
+          sendResponse({ error: "No valid tab found. Please refresh the page and try again." });
+          return true;
+        }
+        
+        console.log(`[Background] Found target tab with ID: ${targetTab.id}, URL: ${targetTab.url}`);
+        
+        // First try to send message to content script
+        try {
+          chrome.tabs.sendMessage(
+            targetTab.id,
+            { action: "scrapeUserPostsForVoiceTraining" },
+            async (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn("[Background] Error sending message to content script, falling back to direct injection:", chrome.runtime.lastError);
+                
+                // Content script not responding, try direct injection instead
+                const result = await injectAndExecuteContentScript(targetTab.id, targetTab.url);
+                
+                if (result.error) {
+                  sendResponse({ error: result.error });
+                  return;
+                }
+                
+                // Get existing data from storage first
+                const existingData = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
+                console.log('[Background] DEBUG: Existing data before direct injection update:', {
+                  postsCount: existingData.userWritingSamples ? existingData.userWritingSamples.length : 0,
+                  repliesCount: existingData.userReplies ? existingData.userReplies.length : 0
+                });
+                
+                // Only update what's collected in this injection, preserve the rest
+                if (result.posts && result.posts.length > 0) {
+                  // New posts provided, update only posts
+                  userWritingSamples = result.posts;
+                  console.log(`[Background] Direct injection updating posts with ${userWritingSamples.length} new items`);
+                } else {
+                  // No new posts, keep existing ones
+                  userWritingSamples = existingData.userWritingSamples || [];
+                  console.log(`[Background] Direct injection preserving ${userWritingSamples.length} existing posts`);
+                }
+                
+                if (result.replies && result.replies.length > 0) {
+                  // New replies provided, update only replies
+                  userReplies = result.replies;
+                  console.log(`[Background] Direct injection updating replies with ${userReplies.length} new items`);
+                } else {
+                  // No new replies, keep existing ones
+                  userReplies = existingData.userReplies || [];
+                  console.log(`[Background] Direct injection preserving ${userReplies.length} existing replies`);
+                }
+                
+                console.log(`[Background] Direct injection final data: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
+                
+                // Save to local storage
+                await chrome.storage.local.set({ 
+                  userWritingSamples: userWritingSamples,
+                  userReplies: userReplies 
+                });
+                
+                // Verify what was saved
+                const verification = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
+                console.log('[Background] Direct injection verification -', 
+                  'Posts:', verification.userWritingSamples ? verification.userWritingSamples.length : 0,
+                  'Replies:', verification.userReplies ? verification.userReplies.length : 0);
+                
+                // Send success response
+                sendResponse({
+                  success: true,
+                  status: `Successfully collected ${result.totalCount} items for voice training (${result.postsCount} posts, ${result.repliesCount} replies).`,
+                  count: result.totalCount,
+                  postsCount: result.postsCount,
+                  repliesCount: result.repliesCount
+                });
+              } else {
+                console.log("[Background] Received response from content script:", response);
+                sendResponse({ success: true, ...response });
+              }
+            }
+          );
+        } catch (msgError) {
+          console.error('[Background] Exception trying to send message:', msgError);
+          // Try direct injection as fallback
+          const result = await injectAndExecuteContentScript(targetTab.id, targetTab.url);
+          sendResponse({ success: result.error ? false : true, ...(result.error ? { error: result.error } : result) });
+        }
+        
+        return true; // Async response
+      } catch (error) {
+        console.error("[Background] Error in collectVoiceTrainingData handler:", error);
+        sendResponse({ error: "Internal extension error: " + error.message });
+        return true;
+      }
+    }
+    
     // Handlers that don't need an API key or have special handling first
     if (message.type === "SAVE_SETTINGS") {
       console.log(
@@ -245,6 +458,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log("[Background] SAVE_API_KEY: userSettings.apiKey set to:", message.apiKey, "Saved to sync.");
       
       sendResponse({ success: true });
+    } else if (message.type === "GET_USER_PROFILE_DATA") {
+      // Return user profile data (posts, replies, liked posts, etc.)
+      console.log("[Background] Received request for user profile data");
+      getUserProfileData().then(profileData => {
+        console.log("[Background] Returning user profile data:", {
+          postsCount: profileData.posts?.length || 0,
+          repliesCount: profileData.replies?.length || 0,
+          likedPostsCount: profileData.likedPosts?.length || 0
+        });
+        sendResponse(profileData);
+      }).catch(error => {
+        console.error("[Background] Error getting user profile data:", error);
+        sendResponse({ error: error.message });
+      });
+      return true; // Indicates we'll call sendResponse asynchronously
     } else if (message.type === "COLLECT_USER_DATA_FOR_TRAINING") {
       console.log(
         `[Background] Forwarding ${message.payload.dataType} data to side panel:`,
@@ -266,9 +494,80 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     // Add SAVE_USER_POSTS, SAVE_USER_LIKES if they are simple storage operations not needing the general apiKey
     if (message.type === "SAVE_USER_POSTS") {
-      userWritingSamples = message.data.userPosts || [];
-      await chrome.storage.local.set({ userWritingSamples: userWritingSamples });
-      sendResponse({ success: true });
+      console.log('[Background] DEBUG: Received SAVE_USER_POSTS message with data:', message.data);
+      
+      // Check the structure of the data
+      if (message.data.userPosts === undefined && message.data.userReplies === undefined) {
+        console.error('[Background] ERROR: Missing both posts and replies in SAVE_USER_POSTS message');
+        sendResponse({ success: false, error: 'Missing both posts and replies data' });
+        return;
+      }
+      
+      // First, get existing data from storage to preserve what's already there
+      try {
+        // Get existing data from storage
+        const existingData = await chrome.storage.local.get(['userWritingSamples', 'userReplies']);
+        console.log('[Background] DEBUG: Existing data in storage:', {
+          postsCount: existingData.userWritingSamples ? existingData.userWritingSamples.length : 0,
+          repliesCount: existingData.userReplies ? existingData.userReplies.length : 0
+        });
+        
+        // Only update what's provided, preserve the rest
+        if (message.data.userPosts && message.data.userPosts.length > 0) {
+          // New posts provided, update only posts
+          userWritingSamples = message.data.userPosts;
+          console.log(`[Background] Updating posts with ${userWritingSamples.length} new items`);
+        } else {
+          // No new posts, keep existing ones
+          userWritingSamples = existingData.userWritingSamples || [];
+          console.log(`[Background] Preserving ${userWritingSamples.length} existing posts`);
+        }
+        
+        if (message.data.userReplies && message.data.userReplies.length > 0) {
+          // New replies provided, update only replies
+          userReplies = message.data.userReplies;
+          console.log(`[Background] Updating replies with ${userReplies.length} new items`);
+        } else {
+          // No new replies, keep existing ones
+          userReplies = existingData.userReplies || [];
+          console.log(`[Background] Preserving ${userReplies.length} existing replies`);
+        }
+        
+        console.log(`[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`);
+        console.log('[Background] DEBUG: Final userReplies array:', userReplies);
+        
+        // Log the updated global variables
+        console.log('[Background] DEBUG: Global userWritingSamples length:', userWritingSamples.length);
+        console.log('[Background] DEBUG: Global userReplies length:', userReplies.length);
+        
+        // Save both to local storage
+        await chrome.storage.local.set({ 
+          userWritingSamples: userWritingSamples,
+          userReplies: userReplies 
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('[Background] ERROR saving to storage:', chrome.runtime.lastError);
+          } else {
+            console.log('[Background] DEBUG: Successfully saved to chrome.storage.local');
+            // Verify what was saved by reading it back
+            chrome.storage.local.get(['userReplies', 'userWritingSamples'], (result) => {
+              console.log('[Background] DEBUG: Verification after save - posts:', 
+                result.userWritingSamples ? result.userWritingSamples.length : 'undefined',
+                'replies:', result.userReplies ? result.userReplies.length : 'undefined');
+            });
+          }
+        });
+        
+        sendResponse({ 
+          success: true, 
+          postsCount: userWritingSamples.length, 
+          repliesCount: userReplies.length,
+          message: 'Data saved successfully, preserving existing content'
+        });
+      } catch (error) {
+        console.error('[Background] Error handling SAVE_USER_POSTS:', error);
+        sendResponse({ success: false, error: 'Error saving data: ' + error.message });
+      }
       return;
     }
     if (message.type === "SAVE_USER_LIKES") {
@@ -1347,6 +1646,40 @@ function loadDataFromStorage() {
     "[Background] loadDataFromStorage called. userSettings BEFORE sync.get (should be defaults):",
     JSON.parse(JSON.stringify(userSettings))
   );
+  
+  // First, load user profile data from local storage (posts, replies, and likes)
+  chrome.storage.local.get(["userWritingSamples", "userReplies", "userLikedTopicsRaw"], (localData) => {
+    console.log("[Background] Loading user profile data from local storage:", localData);
+    
+    // Update global variables with stored data if available
+    if (localData.userWritingSamples) {
+      userWritingSamples = localData.userWritingSamples;
+      console.log(`[Background] Loaded ${userWritingSamples.length} posts from storage.`);
+    } else {
+      console.log("[Background] No posts found in storage. Using defaults.");
+      userWritingSamples = [];
+    }
+    
+    // Load replies (a new addition to our data structure)
+    if (localData.userReplies) {
+      // Use the global userReplies variable
+      userReplies = localData.userReplies;
+      console.log(`[Background] Loaded ${userReplies.length} replies from storage.`);
+    } else {
+      console.log("[Background] No replies found in storage. Using defaults.");
+      userReplies = [];
+    }
+    
+    if (localData.userLikedTopicsRaw) {
+      userLikedTopicsRaw = localData.userLikedTopicsRaw;
+      console.log(`[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`);
+    } else {
+      console.log("[Background] No liked posts found in storage. Using defaults.");
+      userLikedTopicsRaw = [];
+    }
+  });
+  
+  // Then, load settings from sync storage
   chrome.storage.sync.get(
     // Request all individual keys that we manage, plus the general 'settings' object for any legacy/other props
     ["apiKey", "profileBio", "hashtags", "tone", "useOwnKey", "settings"],
@@ -1447,3 +1780,16 @@ function loadDataFromStorage() {
 }
 // Call it once on script load as well, as onStartup/onInstalled might not cover all reload scenarios during development
 loadDataFromStorage();
+
+/**
+ * Get user profile data for display in the settings panel
+ * @returns {Object} Object containing user posts, replies, liked posts, and other profile data
+ */
+async function getUserProfileData() {
+  return {
+    posts: userWritingSamples || [],        // Original posts
+    replies: userReplies || [],            // Replies to other tweets
+    likedPosts: userLikedTopicsRaw || [],   // Liked content
+    // Add any other profile data here
+  };
+}

@@ -1,4 +1,4 @@
-import { saveSettings, saveApiKey } from "../state.js";
+import { saveSettings, saveApiKey, getUserProfileData } from "../state.js";
 import { PREMIUM_MONTHLY_PRICE } from "../../../lib/constants.js";
 
 /**
@@ -226,10 +226,41 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   const personalizationSection = document.createElement("div");
   personalizationSection.className = "settings-section";
 
-  const personalizationTitle = document.createElement("h3");
-  personalizationTitle.textContent = "Personalization Data";
+  const personalizationLabel = document.createElement("h3");
+  personalizationLabel.textContent = "Personalization Data";
+  personalizationLabel.style.marginBottom = "10px";
 
-  personalizationSection.appendChild(personalizationTitle);
+  personalizationSection.appendChild(personalizationLabel);
+  
+  // Status container for personalization actions
+  const personalizationStatus = document.createElement("div");
+  personalizationStatus.id = "personalizationStatus";
+  personalizationStatus.className = "personalization-status";
+  personalizationStatus.style.display = "none";
+  personalizationStatus.style.marginBottom = "10px";
+  personalizationStatus.style.padding = "8px";
+  personalizationStatus.style.borderRadius = "4px";
+  personalizationStatus.style.fontSize = "14px";
+  personalizationStatus.style.textAlign = "center";
+  personalizationSection.appendChild(personalizationStatus);
+
+  // Helper function to show status messages
+  const showPersonalizationStatus = (message, isError = false) => {
+    personalizationStatus.textContent = message;
+    personalizationStatus.style.display = "block";
+    if (isError) {
+      personalizationStatus.style.backgroundColor = "rgba(220, 53, 69, 0.2)";
+      personalizationStatus.style.color = "#ff6b6b";
+    } else {
+      personalizationStatus.style.backgroundColor = "rgba(40, 167, 69, 0.2)";
+      personalizationStatus.style.color = "#9ff0b8";
+    }
+    
+    // Auto-hide the message after 5 seconds
+    setTimeout(() => {
+      personalizationStatus.style.display = "none";
+    }, 5000);
+  };
 
   const trainVoiceButton = document.createElement("button");
   trainVoiceButton.type = "button";
@@ -239,6 +270,9 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   trainVoiceButton.addEventListener("click", () => {
     console.log("Train AI Voice button clicked");
+    // Show loading message
+    showPersonalizationStatus("Collecting your posts for voice training...");
+    
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0] && tabs[0].url) {
         chrome.runtime.sendMessage(
@@ -249,23 +283,31 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
                 "Error sending message for voice training:",
                 chrome.runtime.lastError.message
               );
-              // Update UI with error
+              showPersonalizationStatus("Error: Could not connect to page. Refresh the page and try again.", true);
             } else if (response && response.error) {
               console.error(
                 "Error from content script (voice training):",
                 response.error
               );
-              // Update UI with error from content script
+              showPersonalizationStatus(`Error: ${response.error}`, true);
             } else if (response && response.status) {
               console.log("Success (voice training):", response.status);
-              // Update UI with success message
-              const statusEl = document.getElementById("personalizationStatus"); // Assuming an element to show status
-              if (statusEl) statusEl.textContent = response.status;
+              showPersonalizationStatus(response.status);
+              
+              // Trigger refresh of user profile data section if present
+              setTimeout(() => {
+                const profileDataSection = document.querySelector(".data-stats-container");
+                if (profileDataSection) {
+                  const refreshButton = profileDataSection.querySelector("button");
+                  if (refreshButton) refreshButton.click();
+                }
+              }, 1000); // Wait 1 second to ensure background processing is complete
             }
           }
         );
       } else {
         console.error("Could not get active tab URL for voice training.");
+        showPersonalizationStatus("Error: Could not identify current tab. Try again.", true);
       }
     });
   });
@@ -280,6 +322,9 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   updateInterestsButton.addEventListener("click", () => {
     console.log("Update AI Interests button clicked");
+    // Show loading message
+    showPersonalizationStatus("Collecting your liked posts for interest analysis...");
+    
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0] && tabs[0].url) {
         chrome.runtime.sendMessage(
@@ -290,34 +335,36 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
                 "Error sending message for interest update:",
                 chrome.runtime.lastError.message
               );
-              // Update UI with error
+              showPersonalizationStatus("Error: Could not connect to page. Refresh the page and try again.", true);
             } else if (response && response.error) {
               console.error(
                 "Error from content script (interest update):",
                 response.error
               );
-              // Update UI with error from content script
+              showPersonalizationStatus(`Error: ${response.error}`, true);
             } else if (response && response.status) {
               console.log("Success (interest update):", response.status);
-              // Update UI with success message
-              const statusEl = document.getElementById("personalizationStatus"); // Assuming an element to show status
-              if (statusEl) statusEl.textContent = response.status;
+              showPersonalizationStatus(response.status);
+              
+              // Trigger refresh of user profile data section if present
+              setTimeout(() => {
+                const profileDataSection = document.querySelector(".data-stats-container");
+                if (profileDataSection) {
+                  const refreshButton = profileDataSection.querySelector("button");
+                  if (refreshButton) refreshButton.click();
+                }
+              }, 1000); // Wait 1 second to ensure background processing is complete
             }
           }
         );
       } else {
         console.error("Could not get active tab URL for interest update.");
+        showPersonalizationStatus("Error: Could not identify current tab. Try again.", true);
       }
     });
   });
 
   personalizationSection.appendChild(updateInterestsButton);
-
-  const personalizationStatus = document.createElement("div");
-  personalizationStatus.id = "personalizationStatus";
-  personalizationStatus.className = "status-message";
-  personalizationStatus.style.marginTop = "10px";
-  personalizationSection.appendChild(personalizationStatus);
 
   form.appendChild(personalizationSection);
 
@@ -431,6 +478,181 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   permissionsSection.appendChild(managePermissionsButton);
   permissionsSection.appendChild(permissionsDescription);
   form.appendChild(permissionsSection);
+  
+  // Profile Data Section
+  const profileDataSection = document.createElement("div");
+  profileDataSection.className = "settings-section";
+  profileDataSection.style.marginTop = "24px";
+  profileDataSection.style.borderTop = "1px solid #eee";
+  profileDataSection.style.paddingTop = "16px";
+
+  const profileDataLabel = document.createElement("h3");
+  profileDataLabel.textContent = "Your X.com Data";
+  profileDataLabel.style.marginBottom = "10px";
+
+  const profileDataDescription = document.createElement("p");
+  profileDataDescription.className = "form-description";
+  profileDataDescription.textContent = "This is the data collected from your X.com profile to help personalize AI content generation.";
+
+  // Container for profile data stats
+  const dataStatsContainer = document.createElement("div");
+  dataStatsContainer.className = "data-stats-container";
+  dataStatsContainer.style.display = "flex";
+  dataStatsContainer.style.flexDirection = "column";
+  dataStatsContainer.style.gap = "8px";
+  dataStatsContainer.style.marginTop = "16px";
+  dataStatsContainer.style.padding = "16px";
+  dataStatsContainer.style.backgroundColor = "#1d2226"; // Dark background matching the app theme
+  dataStatsContainer.style.color = "#e4e6eb"; // Light text for dark background
+  dataStatsContainer.style.borderRadius = "8px";
+  dataStatsContainer.style.border = "1px solid #2d3741"; // Subtle border
+  
+  // Loading indicator for profile data
+  const loadingIndicator = document.createElement("div");
+  loadingIndicator.textContent = "Loading your profile data...";
+  loadingIndicator.style.textAlign = "center";
+  loadingIndicator.style.padding = "8px";
+  loadingIndicator.style.color = "#e4e6eb"; // Light text color for dark background
+  
+  dataStatsContainer.appendChild(loadingIndicator);
+  
+  // Add elements to the profile data section
+  profileDataSection.appendChild(profileDataLabel);
+  profileDataSection.appendChild(profileDataDescription);
+  profileDataSection.appendChild(dataStatsContainer);
+  
+  // Fetch user profile data and update the UI
+  getUserProfileData()
+    .then(profileData => {
+      // Remove loading indicator
+      dataStatsContainer.removeChild(loadingIndicator);
+      
+      // Create and add stats elements
+      const createStatElement = (label, value, icon) => {
+        const statElement = document.createElement("div");
+        statElement.style.display = "flex";
+        statElement.style.alignItems = "center";
+        statElement.style.gap = "8px";
+        
+        const iconElement = document.createElement("span");
+        iconElement.innerHTML = icon;
+        iconElement.style.fontSize = "18px";
+        
+        const statLabel = document.createElement("span");
+        statLabel.textContent = `${label}: `;
+        statLabel.style.fontWeight = "500";
+        
+        const statValue = document.createElement("span");
+        statValue.textContent = value;
+        
+        statElement.appendChild(iconElement);
+        statElement.appendChild(statLabel);
+        statElement.appendChild(statValue);
+        
+        return statElement;
+      };
+      
+      // Add original posts stat
+      const postsCount = profileData.posts?.length || 0;
+      dataStatsContainer.appendChild(
+        createStatElement(
+          "Your Original Posts", 
+          `${postsCount} collected for voice training`,
+          "📝"
+        )
+      );
+      
+      // Add replies stat (new item)
+      const repliesCount = profileData.replies?.length || 0;
+      dataStatsContainer.appendChild(
+        createStatElement(
+          "Your Replies", 
+          `${repliesCount} collected for voice training`,
+          "💬"
+        )
+      );
+      
+      // Add liked posts stat
+      const likedPostsCount = profileData.likedPosts?.length || 0;
+      dataStatsContainer.appendChild(
+        createStatElement(
+          "Liked Content", 
+          `${likedPostsCount} posts analyzed for topic preferences`,
+          "❤️"
+        )
+      );
+      
+      // Button to refresh profile data
+      const refreshButton = document.createElement("button");
+      refreshButton.type = "button";
+      refreshButton.textContent = "Refresh Profile Data";
+      refreshButton.className = "xco-btn xco-btn-outline";
+      refreshButton.style.marginTop = "16px";
+      refreshButton.style.alignSelf = "center";
+      refreshButton.style.backgroundColor = "#1a1d21";
+      refreshButton.style.color = "#e4e6eb";
+      refreshButton.style.border = "1px solid #3a3f48";
+      refreshButton.addEventListener("click", () => {
+        // Show refreshing status
+        refreshButton.textContent = "Refreshing...";
+        refreshButton.disabled = true;
+        
+        // Re-fetch profile data
+        getUserProfileData()
+          .then(updatedData => {
+            // Show success message temporarily
+            refreshButton.textContent = "Data Refreshed!";
+            
+            // Update the stats
+            const statsElements = dataStatsContainer.querySelectorAll("div");
+            // Update posts count
+            if (statsElements[0]) {
+              statsElements[0].querySelector("span:last-child").textContent = 
+                `${updatedData.posts?.length || 0} collected for voice training`;
+            }
+            // Update replies count 
+            if (statsElements[1]) {
+              statsElements[1].querySelector("span:last-child").textContent = 
+                `${updatedData.replies?.length || 0} collected for voice training`;
+            }
+            // Update likes count
+            if (statsElements[2]) {
+              statsElements[2].querySelector("span:last-child").textContent = 
+                `${updatedData.likedPosts?.length || 0} posts analyzed for topic preferences`;
+            }
+            
+            // Reset button after a delay
+            setTimeout(() => {
+              refreshButton.textContent = "Refresh Profile Data";
+              refreshButton.disabled = false;
+            }, 2000);
+          })
+          .catch(error => {
+            console.error("[Settings] Error refreshing profile data:", error);
+            refreshButton.textContent = "Refresh Failed";
+            setTimeout(() => {
+              refreshButton.textContent = "Refresh Profile Data";
+              refreshButton.disabled = false;
+            }, 2000);
+          });
+      });
+      
+      dataStatsContainer.appendChild(refreshButton);
+    })
+    .catch(error => {
+      console.error("[Settings] Error fetching profile data:", error);
+      dataStatsContainer.removeChild(loadingIndicator);
+      
+      const errorElement = document.createElement("div");
+      errorElement.textContent = "⚠️ Could not load profile data. Please try again later.";
+      errorElement.style.color = "#ff6b6b"; // Brighter red that's visible on dark background
+      errorElement.style.textAlign = "center";
+      errorElement.style.padding = "10px";
+      errorElement.style.backgroundColor = "rgba(220, 53, 69, 0.2)"; // Semi-transparent red background
+      dataStatsContainer.appendChild(errorElement);
+    });
+
+  form.appendChild(profileDataSection);
 
   // Save Settings Button
   const saveButton = document.createElement("button");

@@ -589,6 +589,57 @@ export function setMessage(successMessage) {
 }
 
 /**
+ * Fetch user profile data from background script (posts, replies, liked posts, etc.)
+ * @returns {Promise} Promise that resolves to user profile data
+ */
+export function getUserProfileData() {
+  return new Promise((resolve, reject) => {
+    console.log('[State] Requesting user profile data from background script');
+    chrome.runtime.sendMessage({ type: 'GET_USER_PROFILE_DATA' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('[State] Error getting user profile data:', chrome.runtime.lastError.message);
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      
+      if (response.error) {
+        console.error('[State] Error from background script:', response.error);
+        reject(new Error(response.error));
+        return;
+      }
+      
+      // Check if we need to adapt the response to the new format (for backward compatibility)
+      const adaptedResponse = {
+        ...response
+      };
+      
+      // Handle the new format with posts/replies or the old format with writingSamples
+      if (response.posts !== undefined && response.writingSamples === undefined) {
+        // New format - already has posts and replies separated
+        console.log('[State] Received user profile data in new format:', {
+          postsCount: response.posts?.length || 0,
+          repliesCount: response.replies?.length || 0,
+          likedPostsCount: response.likedPosts?.length || 0
+        });
+      } else if (response.writingSamples !== undefined && response.posts === undefined) {
+        // Old format - need to adapt it
+        console.log('[State] Received user profile data in old format, adapting:', {
+          writingSamplesCount: response.writingSamples?.length || 0,
+          likedPostsCount: response.likedPosts?.length || 0
+        });
+        
+        // Provide both formats for backward compatibility
+        adaptedResponse.posts = response.writingSamples || [];
+        adaptedResponse.replies = [];
+        adaptedResponse.writingSamples = response.writingSamples || [];
+      }
+      
+      resolve(adaptedResponse);
+    });
+  });
+}
+
+/**
  * Function to load data from storage
  */
 export async function loadDataFromStorage() {
