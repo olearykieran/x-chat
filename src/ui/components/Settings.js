@@ -12,7 +12,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
 
   const panel = document.createElement("div");
   panel.className = "settings-panel slide-in";
-  panel.style.backgroundColor = "#15202b"; // Dark background like Reply/Compose tabs
+  panel.style.backgroundColor = "#000000"; // Dark background matching X.com dark mode
   panel.style.color = "#fff";
 
   // Header
@@ -78,14 +78,10 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
     // Profile Bio
     newProfileSettings.profileBio = formData.get("profileBio");
 
-    // Hashtags
-    const hashtags = formData
-      .get("hashtags")
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag)
-      .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
-    newProfileSettings.hashtags = hashtags;
+    // Hashtags - We removed the UI but still need to preserve existing hashtags
+    // or provide an empty array to prevent null/undefined errors
+    newProfileSettings.hashtags = settings.hashtags || [];
+
 
     // Default tone
     newProfileSettings.defaultTone = formData.get("defaultTone");
@@ -100,7 +96,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   apiKeyGroup.style.display = "flex";
   apiKeyGroup.style.flexDirection = "column";
   apiKeyGroup.style.gap = "12px";
-  apiKeyGroup.style.backgroundColor = "#192734";
+  apiKeyGroup.style.backgroundColor = "#16181c";
   apiKeyGroup.style.padding = "16px";
   apiKeyGroup.style.borderRadius = "8px";
   apiKeyGroup.style.border = "1px solid #38444d";
@@ -225,7 +221,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   apiKeyInput.style.padding = "10px 12px";
   apiKeyInput.style.borderRadius = "4px";
   apiKeyInput.style.border = "1px solid #38444d";
-  apiKeyInput.style.backgroundColor = "#253341";
+  apiKeyInput.style.backgroundColor = "#202327";
   apiKeyInput.style.color = "#fff";
   apiKeyInput.style.fontSize = "14px";
   apiKeyInput.style.boxSizing = "border-box";
@@ -293,7 +289,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   personalizationSection.style.display = "flex";
   personalizationSection.style.flexDirection = "column";
   personalizationSection.style.gap = "12px";
-  personalizationSection.style.backgroundColor = "#192734";
+  personalizationSection.style.backgroundColor = "#16181c";
   personalizationSection.style.padding = "16px";
   personalizationSection.style.borderRadius = "8px";
   personalizationSection.style.border = "1px solid #38444d";
@@ -356,7 +352,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   collectPostsButton.id = "collectPostsButton";
   collectPostsButton.textContent = "Collect Your Posts";
   collectPostsButton.className = "xco-btn xco-btn-outline";
-  collectPostsButton.style.backgroundColor = "#253341";
+  collectPostsButton.style.backgroundColor = "#202327";
   collectPostsButton.style.color = "#fff";
   collectPostsButton.style.border = "1px solid #38444d";
   collectPostsButton.style.borderRadius = "4px";
@@ -428,7 +424,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   collectRepliesButton.id = "collectRepliesButton";
   collectRepliesButton.textContent = "Collect Your Replies";
   collectRepliesButton.className = "xco-btn xco-btn-outline";
-  collectRepliesButton.style.backgroundColor = "#253341";
+  collectRepliesButton.style.backgroundColor = "#202327";
   collectRepliesButton.style.color = "#fff";
   collectRepliesButton.style.border = "1px solid #38444d";
   collectRepliesButton.style.borderRadius = "4px";
@@ -500,7 +496,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   updateInterestsButton.id = "updateInterestsButton";
   updateInterestsButton.textContent = "Collect Your Likes";
   updateInterestsButton.className = "xco-btn xco-btn-outline";
-  updateInterestsButton.style.backgroundColor = "#253341";
+  updateInterestsButton.style.backgroundColor = "#202327";
   updateInterestsButton.style.color = "#fff";
   updateInterestsButton.style.border = "1px solid #38444d";
   updateInterestsButton.style.borderRadius = "4px";
@@ -577,7 +573,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   profileDataSection.style.display = "flex";
   profileDataSection.style.flexDirection = "column";
   profileDataSection.style.gap = "12px";
-  profileDataSection.style.backgroundColor = "#192734";
+  profileDataSection.style.backgroundColor = "#16181c";
   profileDataSection.style.padding = "16px";
   profileDataSection.style.borderRadius = "8px";
   profileDataSection.style.border = "1px solid #38444d";
@@ -602,7 +598,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   dataStatsContainer.style.flexDirection = "column";
   dataStatsContainer.style.gap = "12px";
   dataStatsContainer.style.padding = "16px";
-  dataStatsContainer.style.backgroundColor = "#253341";
+  dataStatsContainer.style.backgroundColor = "#202327";
   dataStatsContainer.style.color = "#e4e6eb";
   dataStatsContainer.style.borderRadius = "8px";
   dataStatsContainer.style.border = "1px solid #38444d";
@@ -629,7 +625,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   profileBioSection.style.display = "flex";
   profileBioSection.style.flexDirection = "column";
   profileBioSection.style.gap = "12px";
-  profileBioSection.style.backgroundColor = "#192734";
+  profileBioSection.style.backgroundColor = "#16181c";
   profileBioSection.style.padding = "16px";
   profileBioSection.style.borderRadius = "8px";
   profileBioSection.style.border = "1px solid #38444d";
@@ -651,7 +647,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   profileBioTextarea.style.padding = "10px 12px";
   profileBioTextarea.style.borderRadius = "4px";
   profileBioTextarea.style.border = "1px solid #38444d";
-  profileBioTextarea.style.backgroundColor = "#253341";
+  profileBioTextarea.style.backgroundColor = "#202327";
   profileBioTextarea.style.color = "#fff";
   profileBioTextarea.style.fontSize = "14px";
   profileBioTextarea.style.boxSizing = "border-box";
@@ -677,7 +673,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   toneSection.style.display = "flex";
   toneSection.style.flexDirection = "column";
   toneSection.style.gap = "12px";
-  toneSection.style.backgroundColor = "#192734";
+  toneSection.style.backgroundColor = "#16181c";
   toneSection.style.padding = "16px";
   toneSection.style.borderRadius = "8px";
   toneSection.style.border = "1px solid #38444d";
@@ -701,7 +697,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   toneValue.className = "static-value";
   toneValue.textContent = "Neutral";
   toneValue.style.padding = "10px 12px";
-  toneValue.style.backgroundColor = "#253341";
+  toneValue.style.backgroundColor = "#202327";
   toneValue.style.borderRadius = "4px";
   toneValue.style.color = "#E4E6EB";
   toneValue.style.border = "1px solid #38444d";
@@ -727,7 +723,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   permissionsSection.style.display = "flex";
   permissionsSection.style.flexDirection = "column";
   permissionsSection.style.gap = "12px";
-  permissionsSection.style.backgroundColor = "#192734";
+  permissionsSection.style.backgroundColor = "#16181c";
   permissionsSection.style.padding = "16px";
   permissionsSection.style.borderRadius = "8px";
   permissionsSection.style.border = "1px solid #38444d";
@@ -742,7 +738,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   managePermissionsButton.type = "button"; // Important: type="button" to prevent form submission
   managePermissionsButton.textContent = "Manage Extension Site Permissions (e.g., Microphone)";
   managePermissionsButton.className = "xco-btn xco-btn-outline";
-  managePermissionsButton.style.backgroundColor = "#253341";
+  managePermissionsButton.style.backgroundColor = "#202327";
   managePermissionsButton.style.color = "#fff";
   managePermissionsButton.style.border = "1px solid #38444d";
   managePermissionsButton.style.borderRadius = "4px";
@@ -913,7 +909,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   saveButton.textContent = "Save Settings";
   saveButton.className = "xco-btn";
   saveButton.style.marginTop = "24px";
-  saveButton.style.backgroundColor = "#1d9bf0"; // Twitter blue
+  saveButton.style.backgroundColor = "#202327"; // Dark gray matching X.com dark mode
   saveButton.style.color = "#fff";
   saveButton.style.border = "none";
   saveButton.style.borderRadius = "4px";
@@ -925,11 +921,11 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   saveButton.style.textAlign = "center";
   
   saveButton.addEventListener("mouseover", () => {
-    saveButton.style.backgroundColor = "#1a91da"; // Slightly darker on hover
+    saveButton.style.backgroundColor = "#2c3035"; // Slightly lighter on hover
   });
   
   saveButton.addEventListener("mouseout", () => {
-    saveButton.style.backgroundColor = "#1d9bf0";
+    saveButton.style.backgroundColor = "#202327";
   });
   form.appendChild(saveButton);
 
