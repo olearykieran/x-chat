@@ -519,30 +519,39 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
   buttonContainer.appendChild(likesButtonWrapper);
 
   updateInterestsButton.addEventListener("click", () => {
-    console.log("Update AI Interests button clicked");
+    console.log("Collect Likes button clicked");
     // Show loading message
     showPersonalizationStatus("Collecting your liked posts for interest analysis...");
     
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0] && tabs[0].url) {
+        // Use the same action as the other buttons but include a type parameter to differentiate it
         chrome.runtime.sendMessage(
-          { action: "collectInterestData", activeTabUrl: tabs[0].url },
+          { 
+            action: "collectVoiceTrainingData", 
+            dataType: "likes",
+            activeTabUrl: tabs[0].url 
+          },
           (response) => {
             if (chrome.runtime.lastError) {
               console.error(
-                "Error sending message for interest update:",
+                "Error sending message for collecting likes:",
                 chrome.runtime.lastError.message
               );
               showPersonalizationStatus("Error: Could not connect to page. Refresh the page and try again.", true);
             } else if (response && response.error) {
               console.error(
-                "Error from content script (interest update):",
+                "Error from content script (collecting likes):",
                 response.error
               );
               showPersonalizationStatus(`Error: ${response.error}`, true);
             } else if (response && response.status) {
-              console.log("Success (interest update):", response.status);
-              showPersonalizationStatus(response.status);
+              console.log("Success (collecting likes):", response);
+              if (response.likedPostsCount !== undefined) {
+                showPersonalizationStatus(`Successfully collected ${response.likedPostsCount} liked posts for personalization!`);
+              } else {
+                showPersonalizationStatus(response.status || "Successfully collected your liked posts!");
+              }
               
               // Trigger refresh of user profile data section if present
               setTimeout(() => {
@@ -556,7 +565,7 @@ export function renderSettingsPanel({ settings, onClose, error, message, loading
           }
         );
       } else {
-        console.error("Could not get active tab URL for interest update.");
+        console.error("Could not get active tab URL for collecting likes.");
         showPersonalizationStatus("Error: Could not identify current tab. Try again.", true);
       }
     });

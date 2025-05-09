@@ -112,6 +112,7 @@ console.log(
 
 let userWritingSamples = []; // To store scraped user posts for voice training
 let userReplies = []; // To store scraped user replies for voice training
+let likedPosts = []; // To store scraped user liked posts
 let userLikedTopicsRaw = []; // To store scraped liked posts for topic generation
 
 // Load settings and other stored data on startup
@@ -237,32 +238,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return false;
         }
 
-        // Execute the scrapeUserPostsForVoiceTraining function directly
+        // Execute the appropriate scraping function based on the page type
         const result = await chrome.scripting.executeScript({
           target: { tabId },
           function: () => {
-            console.log("[XCO-Injected] Direct execution of voice training scraper");
+            console.log("[XCO-Injected] Direct execution of content scraper");
 
-            // Check if we're on a profile page
+            // Check what type of page we're on
             const url = window.location.href;
-            const isProfilePage = url.match(/\/[A-Za-z0-9_]+(\/with_replies)?$/);
+            const isLikesPage = url.includes("/likes");
+            const isRepliesTab = url.includes("/with_replies");
+            const isProfilePage =
+              url.match(/\/[A-Za-z0-9_]+(\/with_replies)?$/) || isLikesPage;
 
-            if (!isProfilePage) {
-              console.error("[XCO-Injected] Not on a profile page");
+            console.log(
+              `[XCO-Injected] Page type - Likes: ${isLikesPage}, Replies: ${isRepliesTab}, Profile: ${isProfilePage}`
+            );
+
+            if (!isProfilePage && !isLikesPage) {
+              console.error("[XCO-Injected] Not on a profile or likes page");
               return {
-                error: "Not on a profile page. Please navigate to your X profile.",
+                error:
+                  "Not on a valid page. Please navigate to your X profile or likes page.",
               };
             }
 
-            // Basic implementation to scrape posts/replies
+            // Data containers
             const posts = [];
             const replies = [];
+            const likedPosts = [];
 
-            // Determine if we're on the replies tab
-            const isRepliesTab = window.location.pathname.endsWith("/with_replies");
-            console.log(`[XCO-Injected] On replies tab: ${isRepliesTab}`);
-
-            // Scrape tweets
+            // Scrape tweets based on page type
             document
               .querySelectorAll('article[data-testid="tweet"]')
               .forEach((tweetElement) => {
@@ -271,7 +277,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 );
                 if (tweetTextElement && tweetTextElement.textContent) {
                   const tweetText = tweetTextElement.textContent.trim();
-                  if (isRepliesTab) {
+
+                  // Route the tweet text to the appropriate array
+                  if (isLikesPage) {
+                    likedPosts.push(tweetText);
+                    console.log(
+                      `[XCO-Injected] Found liked post: ${tweetText.substring(0, 30)}...`
+                    );
+                  } else if (isRepliesTab) {
                     replies.push(tweetText);
                   } else {
                     posts.push(tweetText);
@@ -282,13 +295,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const result = {
               posts: posts,
               replies: replies,
+              likedPosts: likedPosts,
               postsCount: posts.length,
               repliesCount: replies.length,
-              totalCount: posts.length + replies.length,
+              likedPostsCount: likedPosts.length,
+              totalCount: posts.length + replies.length + likedPosts.length,
             };
 
             console.log(
-              `[XCO-Injected] Scraped ${result.postsCount} posts and ${result.repliesCount} replies`
+              `[XCO-Injected] Scraped ${result.postsCount} posts, ${result.repliesCount} replies, and ${result.likedPostsCount} liked posts`
             );
             return result;
           },
@@ -355,9 +370,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // First try to send message to content script
         try {
+          // Determine what we're scraping based on the dataType parameter
+          const contentAction =
+            message.dataType === "likes"
+              ? "scrapeUserLikesForInterests"
+              : "scrapeUserPostsForVoiceTraining";
+
+          console.log(
+            `[Background] Sending ${contentAction} to content script based on dataType:`,
+            message.dataType
+          );
+
           chrome.tabs.sendMessage(
             targetTab.id,
-            { action: "scrapeUserPostsForVoiceTraining" },
+            { action: contentAction },
             async (response) => {
               if (chrome.runtime.lastError) {
                 console.warn(
@@ -380,6 +406,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const existingData = await chrome.storage.local.get([
                   "userWritingSamples",
                   "userReplies",
+                  "likedPosts",
                 ]);
                 console.log(
                   "[Background] DEBUG: Existing data before direct injection update:",
@@ -394,18 +421,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 );
 
                 // Only update what's collected in this injection, preserve the rest
-                if (result.posts && result.posts.length > 0) {
-                  // New posts provided, update only posts
-                  userWritingSamples = result.posts;
-                  console.log(
-                    `[Background] Direct injection updating posts with ${userWritingSamples.length} new items`
-                  );
-                } else {
-                  // No new posts, keep existing ones
+                if (message.dataType === "likes") {
+                  // Handle liked posts collection
+                  if (result.likedPosts && result.likedPosts.length > 0) {
+                    // New liked posts provided
+                    likedPosts = result.likedPosts;
+                    userLikedTopicsRaw = result.likedPosts; // Keep in sync
+                    console.log(
+                      `[Background] Direct injection updating liked posts with ${likedPosts.length} new items`
+                    );
+                  } else {
+                    // No new liked posts, keep existing ones
+                    likedPosts = existingData.likedPosts || [];
+                    if (likedPosts.length === 0 && existingData.userLikedTopicsRaw) {
+                      likedPosts = existingData.userLikedTopicsRaw;
+                    }
+                    userLikedTopicsRaw = likedPosts; // Keep in sync
+                    console.log(
+                      `[Background] Direct injection preserving ${likedPosts.length} existing liked posts`
+                    );
+                  }
+
+                  // Preserve existing posts and replies
                   userWritingSamples = existingData.userWritingSamples || [];
-                  console.log(
-                    `[Background] Direct injection preserving ${userWritingSamples.length} existing posts`
-                  );
+                  userReplies = existingData.userReplies || [];
+                } else {
+                  // Handle posts/replies collection
+                  if (result.posts && result.posts.length > 0) {
+                    // New posts provided, update only posts
+                    userWritingSamples = result.posts;
+                    console.log(
+                      `[Background] Direct injection updating posts with ${userWritingSamples.length} new items`
+                    );
+                  } else {
+                    // No new posts, keep existing ones
+                    userWritingSamples = existingData.userWritingSamples || [];
+                    console.log(
+                      `[Background] Direct injection preserving ${userWritingSamples.length} existing posts`
+                    );
+                  }
                 }
 
                 if (result.replies && result.replies.length > 0) {
@@ -422,9 +476,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   );
                 }
 
-                console.log(
-                  `[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`
-                );
+                // Handle liked posts separately when dataType is "likes"
+                if (message.dataType === "likes") {
+                  if (result.likedPosts && result.likedPosts.length > 0) {
+                    // New liked posts provided
+                    likedPosts = result.likedPosts;
+                    // Also update userLikedTopicsRaw to maintain compatibility with existing code
+                    userLikedTopicsRaw = result.likedPosts;
+                    console.log(
+                      `[Background] Direct injection updating liked posts with ${likedPosts.length} new items`
+                    );
+                  } else {
+                    // No new liked posts, keep existing ones
+                    likedPosts = existingData.likedPosts || [];
+                    // If no existing likedPosts but we have userLikedTopicsRaw, use that
+                    if (
+                      likedPosts.length === 0 &&
+                      existingData.userLikedTopicsRaw &&
+                      existingData.userLikedTopicsRaw.length > 0
+                    ) {
+                      likedPosts = existingData.userLikedTopicsRaw;
+                    }
+                    console.log(
+                      `[Background] Direct injection preserving ${likedPosts.length} existing liked posts`
+                    );
+                  }
+                }
+
+                // Log appropriate message based on dataType
+                if (message.dataType === "likes") {
+                  console.log(
+                    `[Background] Final data for saving: ${
+                      likedPosts ? likedPosts.length : 0
+                    } liked posts for interest analysis`
+                  );
+                } else {
+                  console.log(
+                    `[Background] Final data for saving: ${userWritingSamples.length} posts and ${userReplies.length} replies`
+                  );
+                }
                 console.log("[Background] DEBUG: Final userReplies array:", userReplies);
 
                 // Log the updated global variables
@@ -437,47 +527,93 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   userReplies.length
                 );
 
-                // Save to local storage
-                await chrome.storage.local.set(
-                  {
-                    userWritingSamples: userWritingSamples,
-                    userReplies: userReplies,
-                  },
-                  () => {
-                    if (chrome.runtime.lastError) {
-                      console.error(
-                        "[Background] ERROR saving to storage:",
-                        chrome.runtime.lastError
-                      );
-                    } else {
-                      console.log(
-                        "[Background] DEBUG: Successfully saved to chrome.storage.local"
-                      );
-                      // Verify what was saved by reading it back
-                      chrome.storage.local.get(
-                        ["userReplies", "userWritingSamples"],
-                        (result) => {
-                          console.log(
-                            "[Background] DEBUG: Verification after save - posts:",
-                            result.userWritingSamples
-                              ? result.userWritingSamples.length
-                              : "undefined",
-                            "replies:",
-                            result.userReplies ? result.userReplies.length : "undefined"
-                          );
-                        }
-                      );
-                    }
-                  }
-                );
+                // Log liked posts if applicable
+                if (message.dataType === "likes" && likedPosts) {
+                  console.log(
+                    "[Background] DEBUG: Global likedPosts length:",
+                    likedPosts.length
+                  );
+                }
 
-                sendResponse({
-                  success: true,
-                  status: `Successfully collected ${result.totalCount} items for voice training (${result.postsCount} posts, ${result.repliesCount} replies).`,
-                  count: result.totalCount,
-                  postsCount: result.postsCount,
-                  repliesCount: result.repliesCount,
+                // Save to local storage
+                const storageData = {
+                  userWritingSamples: userWritingSamples,
+                  userReplies: userReplies,
+                };
+
+                // Add likedPosts and update userLikedTopicsRaw to storage if handling likes
+                if (message.dataType === "likes" && likedPosts) {
+                  storageData.likedPosts = likedPosts;
+                  // Also update userLikedTopicsRaw to maintain compatibility
+                  storageData.userLikedTopicsRaw = likedPosts;
+
+                  console.log(
+                    `[Background] Saving ${likedPosts.length} liked posts to storage under both likedPosts and userLikedTopicsRaw keys`
+                  );
+                }
+
+                await chrome.storage.local.set(storageData, () => {
+                  if (chrome.runtime.lastError) {
+                    console.error(
+                      "[Background] ERROR saving to storage:",
+                      chrome.runtime.lastError
+                    );
+                  } else {
+                    console.log(
+                      "[Background] DEBUG: Successfully saved to chrome.storage.local"
+                    );
+                    // Verify what was saved by reading it back
+                    const keysToCheck =
+                      message.dataType === "likes"
+                        ? [
+                            "userReplies",
+                            "userWritingSamples",
+                            "likedPosts",
+                            "userLikedTopicsRaw",
+                          ]
+                        : ["userReplies", "userWritingSamples"];
+
+                    chrome.storage.local.get(keysToCheck, (result) => {
+                      if (message.dataType === "likes") {
+                        console.log(
+                          "[Background] DEBUG: Verification after save - liked posts:",
+                          result.likedPosts ? result.likedPosts.length : "undefined"
+                        );
+                      } else {
+                        console.log(
+                          "[Background] DEBUG: Verification after save - posts:",
+                          result.userWritingSamples
+                            ? result.userWritingSamples.length
+                            : "undefined",
+                          "replies:",
+                          result.userReplies ? result.userReplies.length : "undefined"
+                        );
+                      }
+                    });
+                  }
                 });
+
+                // Send a response with appropriate counts based on dataType
+                if (message.dataType === "likes") {
+                  sendResponse({
+                    success: true,
+                    status: `Successfully collected ${likedPosts.length} liked posts for personalization.`,
+                    likedPostsCount: likedPosts.length,
+                    postsCount: userWritingSamples.length,
+                    repliesCount: userReplies.length,
+                  });
+                } else {
+                  sendResponse({
+                    success: true,
+                    status: `Successfully collected ${
+                      userWritingSamples.length + userReplies.length
+                    } items for voice training (${userWritingSamples.length} posts, ${
+                      userReplies.length
+                    } replies).`,
+                    postsCount: userWritingSamples.length,
+                    repliesCount: userReplies.length,
+                  });
+                }
               } else {
                 console.log(
                   "[Background] Received response from content script:",
@@ -762,9 +898,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     if (message.type === "SAVE_USER_LIKES") {
-      userLikedTopicsRaw = message.data.likedTweets || [];
-      await chrome.storage.local.set({ userLikedTopicsRaw: userLikedTopicsRaw });
-      sendResponse({ success: true });
+      const likes = message.data.likedTweets || [];
+      // Update both variables to ensure consistency
+      userLikedTopicsRaw = likes;
+      likedPosts = likes;
+
+      console.log(`[Background] Saving ${likes.length} liked posts to storage`);
+
+      // Save with both keys for compatibility
+      await chrome.storage.local.set({
+        userLikedTopicsRaw: userLikedTopicsRaw,
+        likedPosts: likedPosts,
+      });
+
+      // Verify what was saved
+      chrome.storage.local.get(["likedPosts", "userLikedTopicsRaw"], (result) => {
+        console.log(
+          "[Background] Verification after SAVE_USER_LIKES - likedPosts:",
+          result.likedPosts ? result.likedPosts.length : "undefined",
+          "userLikedTopicsRaw:",
+          result.userLikedTopicsRaw ? result.userLikedTopicsRaw.length : "undefined"
+        );
+      });
+
+      sendResponse({ success: true, count: likes.length });
       return;
     }
 
@@ -941,7 +1098,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     } else if (message.type === "GENERATE_REPLY") {
       const { tweetData, tone, userInstruction, forceRegenerate } = message; // Extract all needed params, including forceRegenerate flag
-      console.log("[Background] Generating reply for tweet:", tweetData, forceRegenerate ? "(forced regeneration)" : "");
+      console.log(
+        "[Background] Generating reply for tweet:",
+        tweetData,
+        forceRegenerate ? "(forced regeneration)" : ""
+      );
 
       if (!tweetData || !tweetData.tweetText) {
         sendResponse({ error: "Invalid tweet data. Cannot generate reply." });
@@ -964,12 +1125,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const postSeparator = "###POST_SEPARATOR###";
       const questionSeparator = "###QUESTIONS_SEPARATOR###";
       // If forceRegenerate is true, add a randomness factor to ensure different results
-      const randomPrompt = forceRegenerate ? `Regeneration request #${Math.floor(Math.random() * 10000)}. ` : "";
-      
+      const randomPrompt = forceRegenerate
+        ? `Regeneration request #${Math.floor(Math.random() * 10000)}. `
+        : "";
+
       const prompt = `
         ${randomPrompt}Generate 5 distinct reply suggestions and 3 contextual guiding questions for the following tweet by ${
-          tweetData.tweetAuthorHandle || "the author"
-        }:
+        tweetData.tweetAuthorHandle || "the author"
+      }:
 
         "${tweetData.tweetText}"
 
@@ -1021,157 +1184,168 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         `;
 
       try {
-        // First, use our enhanced generateReply function for the main reply
-        console.log("[Background] Calling improved generateReply function for primary response");
-        const mainReply = await generateReply(tweetData, tone || "neutral", userInstruction);
-        console.log("[Background] Generated primary reply:", mainReply);
+        // Use the main prompt directly instead of the variation flow
+        console.log(
+          "[Background] Generating replies directly from the main prompt"
+        );
         
-        // Create variations based on the main reply
-        const variationPrompt = `
-          Based on this tweet reply: "${mainReply}"
-          
-          Generate 5 short, authentic Twitter-style variations I can use to reply. These MUST sound like tweets from a real tech enthusiast who codes.
-          
-          CRITICAL REQUIREMENTS:
-          - Each reply MUST be under 25 words and only 1 sentence
-          - EXTREMELY casual, conversational tone
-          - Replies should feel like they were written by a real developer
-          - Use personal, direct language ("I", "you", etc.)
-          - ZERO AI-sounding phrasing or formal language
-          - ALWAYS directly acknowledge the specific content of the original tweet
-          - NO generic responses that could apply to any tweet
-          - NO dashes/hyphens of any kind
-          - ABSOLUTELY NO "I understand" or "I appreciate" phrases
-          - Format each as a simple plain text paragraph
-          - Return EXACTLY 5 variations numbered 1-5
-        `;
+        // Use our main prompt to get all replies at once
+        const mainResponse = await callOpenAI(userSettings.apiKey, prompt);
+        console.log("[Background] Generated response from main prompt:", mainResponse);
         
-        // Generate reply variations using the API
-        const variationsResponse = await callOpenAI(userSettings.apiKey, variationPrompt);
+        // Process the main response
         let variations = [];
         
-        if (variationsResponse) {
-          console.log("[Background] Raw variations response:", variationsResponse);
-          
+        if (mainResponse) {
+          console.log("[Background] Raw main response:", mainResponse);
+
           // ADVANCED VARIATION EXTRACTION
           // If the API returns variations in a single block, we need to intelligently segment it
-          
+
           // First, try to identify individual replies by common patterns
           const forcedVariations = [];
-          
-          // First, ensure we always have the main reply
-          forcedVariations.push(mainReply);
-          
+
+          // Extract the first part as a potential main reply if we can find one
+          if (mainResponse.includes(postSeparator)) {
+            const firstPart = mainResponse.split(postSeparator)[0].trim();
+            if (firstPart && firstPart.length > 0) {
+              forcedVariations.push(firstPart);
+            }
+          }
+
           // Try to extract individual complete thoughts
           // Start with sentences as potential independent replies
-          const sentenceMatches = variationsResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
+          const sentenceMatches = mainResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
           let cleanedSentences = sentenceMatches
-            .map(s => s.trim())
-            .filter(s => s.length >= 10 && s.length <= 280);
-            
+            .map((s) => s.trim())
+            .filter((s) => s.length >= 10 && s.length <= 280);
+
           // Get unique sentences only
           cleanedSentences = [...new Set(cleanedSentences)];
-          
+
           // If we have multiple short sentences, add them as variations
-          for (let i = 0; i < cleanedSentences.length && forcedVariations.length < 4; i++) {
+          for (
+            let i = 0;
+            i < cleanedSentences.length && forcedVariations.length < 4;
+            i++
+          ) {
             // Only add if it's different from the main reply and other variations
-            if (!forcedVariations.some(v => 
-                v.toLowerCase().includes(cleanedSentences[i].toLowerCase()) || 
-                cleanedSentences[i].toLowerCase().includes(v.toLowerCase()))) {
+            if (
+              !forcedVariations.some(
+                (v) =>
+                  v.toLowerCase().includes(cleanedSentences[i].toLowerCase()) ||
+                  cleanedSentences[i].toLowerCase().includes(v.toLowerCase())
+              )
+            ) {
               forcedVariations.push(cleanedSentences[i]);
             }
           }
-          
+
           // If we still need more variations, try a different approach - character counts
           if (forcedVariations.length < 4) {
             // Try to intelligently find break points in the text (e.g., 30-40 words per reply)
             const words = variationsResponse.split(/\s+/);
             let currentVariation = [];
             let variationCount = 0;
-            
+
             for (let i = 0; i < words.length && forcedVariations.length < 4; i++) {
               currentVariation.push(words[i]);
-              
+
               // Check if we have a reasonable variation size (about 30-40 words)
-              if (currentVariation.length >= 12 || 
-                  (currentVariation.length >= 8 && 
-                   (words[i].endsWith('.') || words[i].endsWith('?') || words[i].endsWith('!')))) {
-                
-                const newVariation = currentVariation.join(' ');
-                
+              if (
+                currentVariation.length >= 12 ||
+                (currentVariation.length >= 8 &&
+                  (words[i].endsWith(".") ||
+                    words[i].endsWith("?") ||
+                    words[i].endsWith("!")))
+              ) {
+                const newVariation = currentVariation.join(" ");
+
                 // Check if this variation is unique enough
-                if (!forcedVariations.some(v => 
-                    v.toLowerCase().includes(newVariation.toLowerCase()) || 
-                    newVariation.toLowerCase().includes(v.toLowerCase()))) {
+                if (
+                  !forcedVariations.some(
+                    (v) =>
+                      v.toLowerCase().includes(newVariation.toLowerCase()) ||
+                      newVariation.toLowerCase().includes(v.toLowerCase())
+                  )
+                ) {
                   forcedVariations.push(newVariation);
                   currentVariation = [];
                   variationCount++;
                 }
               }
             }
-            
+
             // If we have remaining words that haven't formed a variation, add them
             if (currentVariation.length > 5 && forcedVariations.length < 4) {
-              const lastVariation = currentVariation.join(' ');
+              const lastVariation = currentVariation.join(" ");
               forcedVariations.push(lastVariation);
             }
           }
-          
+
           try {
             // Handle numerical splitting with post separators (OpenAI's formatting)
             const postSeparatorPattern = /###POST_SEPARATOR###/g;
-            if (variationsResponse.includes('###POST_SEPARATOR###')) {
-              console.log("[Background] Detected POST_SEPARATOR format, properly splitting");
-              const separatedVariations = variationsResponse.split(/###POST_SEPARATOR###/g);
+            if (mainResponse.includes("###POST_SEPARATOR###")) {
+              console.log(
+                "[Background] Detected POST_SEPARATOR format, properly splitting"
+              );
+              const separatedVariations =
+                mainResponse.split(/###POST_SEPARATOR###/g);
               if (separatedVariations.length >= 3) {
                 // Clean up each variation, removing all numbering and other artifacts
                 variations = separatedVariations
-                  .map(v => {
+                  .map((v) => {
                     // Start with trimming whitespace
                     let cleaned = v.trim();
                     // Remove any numbering like "1. " at the start
-                    cleaned = cleaned.replace(/^\s*\d+\s*\.\s*/, '');
+                    cleaned = cleaned.replace(/^\s*\d+\s*\.\s*/, "");
                     // Remove any trailing numbers that might have leaked in
-                    cleaned = cleaned.replace(/\s+\d+\.\s*$/g, '');
+                    cleaned = cleaned.replace(/\s+\d+\.\s*$/g, "");
                     // Remove any remaining post separator tags
-                    cleaned = cleaned.replace(/###POST_SEPARATOR###/g, '');
+                    cleaned = cleaned.replace(/###POST_SEPARATOR###/g, "");
                     // Final trim to clean up any leftover whitespace
                     cleaned = cleaned.trim();
                     return cleaned;
                   })
-                  .filter(v => v.length > 0)
+                  .filter((v) => v.length > 0)
                   .map(removeHyphens);
               }
             }
           } catch (error) {
-            console.error("[Background] Error processing variations with separators:", error);
+            console.error(
+              "[Background] Error processing variations with separators:",
+              error
+            );
             // Keep the variations as they are if processing fails
           }
           try {
             // Detect if we have numbered variations (common format)
-            if (/^\s*\d+\.\s/m.test(variationsResponse)) {
+            if (/^\s*\d+\.\s/m.test(mainResponse)) {
               console.log("[Background] Detected numbered format, extracting properly");
-              
+
               // Method 1: Try to extract using advanced segmentation by looking for numbering
               const variationPattern = /\s*\d+\.\s*(.*?)(?=\s*\d+\.\s*|$)/gs;
               const extractedVariations = [];
               let variationMatch;
-              
-              while ((variationMatch = variationPattern.exec(variationsResponse)) !== null) {
+
+              while (
+                (variationMatch = variationPattern.exec(mainResponse)) !== null
+              ) {
                 let extractedText = variationMatch[1].trim();
-                
+
                 // Additional cleaning to ensure we have no separators or trailing numbers
-                extractedText = extractedText.replace(/###POST_SEPARATOR###/g, '').trim();
+                extractedText = extractedText.replace(/###POST_SEPARATOR###/g, "").trim();
                 // Remove any trailing numbers with periods that might have leaked in
-                extractedText = extractedText.replace(/\s+\d+\.\s*$/g, '').trim();
+                extractedText = extractedText.replace(/\s+\d+\.\s*$/g, "").trim();
                 // Remove any numbering at the start that might have been missed
-                extractedText = extractedText.replace(/^\s*\d+\.\s*/g, '').trim();
-                
+                extractedText = extractedText.replace(/^\s*\d+\.\s*/g, "").trim();
+
                 if (extractedText.length > 0) {
                   extractedVariations.push(extractedText);
                 }
               }
-              
+
               // If we found at least 3 variations with the advanced pattern, use them
               if (extractedVariations.length >= 3) {
                 console.log("[Background] Using advanced segmentation for variations");
@@ -1186,57 +1360,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.error("[Background] Error processing numbered variations:", error);
             // Keep existing variations if processing fails
           }
-          
+
           // If we didn't get good variations from numbered format, try other approaches
           if (variations.length < 3) {
             console.log("[Background] Using alternative segmentation for variations");
             variations = forcedVariations
-              .filter(reply => reply && reply.trim().length > 0)
-              .map(reply => reply.replace(/^\d+\.\s*/, '').trim()) // Remove any numbering
-              .map(reply => reply.replace(/^[-*•]\s*/, '').trim()) // Remove any bullet points
-              .map(reply => reply.replace(/###\w+###/g, '').trim()) // Remove any separators or tags
+              .filter((reply) => reply && reply.trim().length > 0)
+              .map((reply) => reply.replace(/^\d+\.\s*/, "").trim()) // Remove any numbering
+              .map((reply) => reply.replace(/^[-*•]\s*/, "").trim()) // Remove any bullet points
+              .map((reply) => reply.replace(/###\w+###/g, "").trim()) // Remove any separators or tags
               .map(removeHyphens); // Ensure no hyphens
           }
-          
+
           // If we still don't have enough variations, use the forced variations as fallback
-        if (variations.length < 3) {
-          console.log("[Background] Using fallback variation processing");
-          variations = forcedVariations
-            .filter(reply => reply && reply.trim().length > 0)
-            .map(reply => reply.replace(/^\d+\.\s*/, '').trim()) // Remove any numbering
-            .map(reply => reply.replace(/^[-*•]\s*/, '').trim()) // Remove any bullet points
-            .map(reply => reply.replace(/###\w+###/g, '').trim()) // Remove any separators or tags
-            .map(removeHyphens);
-        }
-          
+          if (variations.length < 3) {
+            console.log("[Background] Using fallback variation processing");
+            variations = forcedVariations
+              .filter((reply) => reply && reply.trim().length > 0)
+              .map((reply) => reply.replace(/^\d+\.\s*/, "").trim()) // Remove any numbering
+              .map((reply) => reply.replace(/^[-*•]\s*/, "").trim()) // Remove any bullet points
+              .map((reply) => reply.replace(/###\w+###/g, "").trim()) // Remove any separators or tags
+              .map(removeHyphens);
+          }
+
           // If we have less than 5 variations, try splitting by sentences
           if (variations.length < 5) {
-            const sentences = variationsResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
+            const sentences = mainResponse.match(/[^.!?]+[.!?]+\s*/g) || [];
             const cleanSentences = sentences
-              .map(s => s.trim())
-              .filter(s => s.length >= 10 && s.length <= 120)
-              .map(s => removeHyphens(s));
-              
+              .map((s) => s.trim())
+              .filter((s) => s.length >= 10 && s.length <= 120)
+              .map((s) => removeHyphens(s));
+
             // Add unique sentences as variations
             for (const sentence of cleanSentences) {
-              if (!variations.some(v => v.toLowerCase().includes(sentence.toLowerCase()) ||
-                                   sentence.toLowerCase().includes(v.toLowerCase()))) {
+              if (
+                !variations.some(
+                  (v) =>
+                    v.toLowerCase().includes(sentence.toLowerCase()) ||
+                    sentence.toLowerCase().includes(v.toLowerCase())
+                )
+              ) {
                 variations.push(sentence);
                 if (variations.length >= 5) break;
               }
             }
           }
-          
-          // Always include the main reply as the first one
-          if (!variations.includes(mainReply)) {
-            variations.unshift(mainReply);
-          }
-          
+
+          // No need to add the main reply separately as it should already be in the variations
+
           // Keep only the top 5 variations
           variations = variations.slice(0, 5);
-          
+
           console.log("[Background] Final processed variations:", variations);
-          
+
           // As a fallback, if we have fewer than 4 variations, make duplicates
           // This ensures the UI shows the right number of slots
           while (variations.length < 4) {
@@ -1245,7 +1421,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             variations.push(baseVar);
           }
         }
-        
+
         // Generate contextual questions based on the tweet content
         const questionsPrompt = `
           Based on this tweet: "${tweetData.tweetText}"
@@ -1266,30 +1442,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           - One question about a specific aspect or detail mentioned in the tweet
           - One question about their future plans or intentions related to the tweet topic
         `;
-        
+
         const questionsResponse = await callOpenAI(userSettings.apiKey, questionsPrompt);
         let guidingQuestions = [];
-        
+
         if (questionsResponse) {
           console.log("[Background] Raw questions response:", questionsResponse);
-          
+
           // Improved question parsing with careful error handling
           console.log("[Background] Parsing questions from response");
-          
+
           try {
             // Clean up the input by normalizing spaces and linebreaks
-            const cleanedInput = questionsResponse.replace(/\r\n|\r|\n/g, '\n').trim();
-            
+            const cleanedInput = questionsResponse.replace(/\r\n|\r|\n/g, "\n").trim();
+
             // Look for "Question X:" patterns or numbered questions
             const questionLines = [];
-            
+
             // Try to find formatted Question X: patterns
             const formatPattern = /Question\s*\d+\s*:/gi;
             const matchResult = cleanedInput.match(formatPattern);
-            
+
             if (matchResult && matchResult.length >= 2) {
               console.log("[Background] Found formatted questions");
-              
+
               // Split by the question pattern
               const parts = cleanedInput.split(formatPattern);
               // Skip the first part (it's before the first question)
@@ -1301,45 +1477,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else {
               // Fallback: split by lines or sentences
               console.log("[Background] Using fallback question parsing");
-              
+
               // Split by newlines first
-              const lines = cleanedInput.split('\n')
-                .filter(line => line.trim().length > 0);
-              
+              const lines = cleanedInput
+                .split("\n")
+                .filter((line) => line.trim().length > 0);
+
               // Filter to find likely questions
-              questionLines.push(...lines.filter(line => {
-                const l = line.toLowerCase().trim();
-                return l.includes('?') || 
-                       l.startsWith('what') || 
-                       l.startsWith('how') || 
-                       l.startsWith('why') || 
-                       l.startsWith('when') || 
-                       l.startsWith('where') ||
-                       l.startsWith('which');
-              }));
+              questionLines.push(
+                ...lines.filter((line) => {
+                  const l = line.toLowerCase().trim();
+                  return (
+                    l.includes("?") ||
+                    l.startsWith("what") ||
+                    l.startsWith("how") ||
+                    l.startsWith("why") ||
+                    l.startsWith("when") ||
+                    l.startsWith("where") ||
+                    l.startsWith("which")
+                  );
+                })
+              );
             }
-            
+
             // Process and clean the questions
-            const cleanedQuestions = questionLines.map(q => {
-              // Remove any existing prefixes
-              return q.replace(/^\s*(?:Question\s*\d+\s*:|Q\d+\s*:|\d+\.\s*(?:Question)?\s*:)\s*/i, '').trim();
-            }).filter(q => q.length > 0);
-            
+            const cleanedQuestions = questionLines
+              .map((q) => {
+                // Remove any existing prefixes
+                return q
+                  .replace(
+                    /^\s*(?:Question\s*\d+\s*:|Q\d+\s*:|\d+\.\s*(?:Question)?\s*:)\s*/i,
+                    ""
+                  )
+                  .trim();
+              })
+              .filter((q) => q.length > 0);
+
             // Format final questions with proper prefixes
             guidingQuestions = cleanedQuestions.slice(0, 3).map((q, i) => {
-              return `Question ${i+1}: ${q}`;
+              return `Question ${i + 1}: ${q}`;
             });
-            
+
             // Add default questions if needed
             if (guidingQuestions.length < 3) {
               const defaultQuestions = [
                 "What inspired you to create this particular project?",
                 "What was the most rewarding part of bringing this to life?",
-                "Are you planning to expand or share this work further?"
+                "Are you planning to expand or share this work further?",
               ];
-              
+
               while (guidingQuestions.length < 3) {
-                guidingQuestions.push(`Question ${guidingQuestions.length + 1}: ${defaultQuestions[guidingQuestions.length % 3]}`);
+                guidingQuestions.push(
+                  `Question ${guidingQuestions.length + 1}: ${
+                    defaultQuestions[guidingQuestions.length % 3]
+                  }`
+                );
               }
             }
           } catch (error) {
@@ -1348,10 +1540,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             guidingQuestions = [
               "Question 1: What was your inspiration behind this?",
               "Question 2: What challenges did you face during development?",
-              "Question 3: What future improvements do you have planned?"
+              "Question 3: What future improvements do you have planned?",
             ];
           }
-          
+
           console.log("[Background] Final processed questions:", guidingQuestions);
         }
 
@@ -1361,72 +1553,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           guidingQuestions = [
             "Question 1: What specific aspect of this tweet interests you most?",
             "Question 2: How might your personal experience relate to this topic?",
-            "Question 3: What unique perspective can you add to this conversation?"
+            "Question 3: What unique perspective can you add to this conversation?",
           ];
         } else if (guidingQuestions.length < 3) {
           // If we have some questions but not enough, add different fallbacks
           const defaultQuestions = [
             "Question 1: What specific aspect of this tweet interests you most?",
             "Question 2: How might your personal experience relate to this topic?",
-            "Question 3: What unique perspective can you add to this conversation?"
+            "Question 3: What unique perspective can you add to this conversation?",
           ];
-          
+
           // Add remaining questions needed to reach 3 total
           while (guidingQuestions.length < 3) {
-            guidingQuestions.push(defaultQuestions[guidingQuestions.length % defaultQuestions.length]);
+            guidingQuestions.push(
+              defaultQuestions[guidingQuestions.length % defaultQuestions.length]
+            );
           }
         }
-        
+
         // Make sure we only have exactly 3 questions
         guidingQuestions = guidingQuestions.slice(0, 3);
-        
+
         // Make sure we have exactly 5 variations showing in the UI
         // If we have fewer than 5 total variations, create additional ones based on existing ones
         while (variations.length < 5) {
           if (variations.length > 0) {
             // Get one of the existing variations as a base
             const baseVar = variations[variations.length % variations.length];
-            
+
             // Create a slight variation by adding a common ending phrase
             const endings = [
               "right?",
               "for real",
               "so awesome",
               "love that feeling",
-              "thats the real magic"
+              "thats the real magic",
             ];
-            
+
             // Add a variation with a different ending
             if (baseVar.endsWith("?") || baseVar.endsWith("!") || baseVar.endsWith(".")) {
               // Remove the ending punctuation
-              const newVar = baseVar.slice(0, -1) + " " + 
-                            endings[variations.length % endings.length];
+              const newVar =
+                baseVar.slice(0, -1) + " " + endings[variations.length % endings.length];
               variations.push(newVar);
             } else {
               // Just add the ending
-              variations.push(baseVar + " " + endings[variations.length % endings.length]);
+              variations.push(
+                baseVar + " " + endings[variations.length % endings.length]
+              );
             }
           } else {
-            // If we somehow have no variations at all, use the main reply
-            variations.push(mainReply);
+            // If we somehow have no variations at all, add a generic reply
+            variations.push("Thanks for sharing this!");
           }
         }
-        
-        // Combine main reply with variations 
+
+        // Assemble final response
         const formattedResponse = {
-          allReplies: variations,  // This should include all 4 variations
-          reply: mainReply,        // For backward compatibility 
-          guidingQuestions: guidingQuestions
+          allReplies: variations, // This should include all variations
+          reply: variations[0] || "", // For backward compatibility, use first variation
+          guidingQuestions: guidingQuestions,
         };
-        
-        console.log("[Background] Processed response with contextual questions:", formattedResponse);
-        
+
+        console.log(
+          "[Background] Processed response with contextual questions:",
+          formattedResponse
+        );
+
         sendResponse(formattedResponse);
       } catch (error) {
         console.error("[Background] Error generating reply:", error);
         sendResponse({ error: `Error generating reply: ${error.message}` });
       }
-    // GENERATE_AI_REPLY message type has been completely removed since we're now using the improved GENERATE_REPLY flow consistently
+      // GENERATE_AI_REPLY message type has been completely removed since we're now using the improved GENERATE_REPLY flow consistently
     } else if (message.type === "GENERATE_TWEET_IDEAS") {
       const { trending, tone, userInstruction } = message;
       // ... (prompt construction as in the diff, using topicsForIdeas) ...
@@ -1545,7 +1744,9 @@ async function generateReply(tweetData, tone = "neutral") {
 
   // Add liked topics if available to better understand user preferences
   if (userSettings.likedTopics && userSettings.likedTopics.length > 0) {
-    prompt += `The user is interested in these topics: ${userSettings.likedTopics.join(', ')}\n`;
+    prompt += `The user is interested in these topics: ${userSettings.likedTopics.join(
+      ", "
+    )}\n`;
   }
 
   if (userWritingSamples && userWritingSamples.length > 0) {
@@ -1878,7 +2079,7 @@ function processAIResponse(response, replySeparator, questionSeparator) {
         const matches = Array.from(questionsSection.matchAll(questionPattern));
 
         console.log("[Background] Found question matches:", matches.length);
-        
+
         for (const match of matches) {
           if (match[1] && match[1].trim()) {
             questions.push(match[1].trim());
@@ -1887,11 +2088,15 @@ function processAIResponse(response, replySeparator, questionSeparator) {
       } else {
         // From looking at the API responses, we need to handle multiple formats
         // Check for Question X formats after QUESTIONS_SEPARATOR
-        if (questionsSection.match(/Question \d/i) || questionsSection.match(/###Question \d/i)) {
+        if (
+          questionsSection.match(/Question \d/i) ||
+          questionsSection.match(/###Question \d/i)
+        ) {
           // Extract questions by looking for Question pattern
-          const questionPattern = /(?:###)?Question \d(?:###)?[^\S\r\n]*(.+?)(?=(?:###Question|$))/gis;
+          const questionPattern =
+            /(?:###)?Question \d(?:###)?[^\S\r\n]*(.+?)(?=(?:###Question|$))/gis;
           const matches = [...questionsSection.matchAll(questionPattern)];
-          
+
           if (matches && matches.length > 0) {
             for (const match of matches) {
               if (match[1] && match[1].trim()) {
@@ -1899,7 +2104,7 @@ function processAIResponse(response, replySeparator, questionSeparator) {
               }
             }
           }
-        } 
+        }
         // Handle cases with multiple QUESTIONS_SEPARATOR markers
         else if (questionsSection.includes("QUESTIONS_SEPARATOR")) {
           // Split by the QUESTIONS_SEPARATOR marker
@@ -1910,7 +2115,7 @@ function processAIResponse(response, replySeparator, questionSeparator) {
               questions.push(clean);
             }
           }
-        } 
+        }
         // Standard processing - split by line breaks
         else {
           questions = questionsSection
@@ -2416,7 +2621,7 @@ async function loadDataFromStorage() {
 
   const localGetPromise = new Promise((resolve, reject) => {
     chrome.storage.local.get(
-      ["userWritingSamples", "userReplies", "userLikedTopicsRaw"],
+      ["userWritingSamples", "userReplies", "userLikedTopicsRaw", "likedPosts"],
       (localData) => {
         if (chrome.runtime.lastError) {
           console.error(
@@ -2448,15 +2653,36 @@ async function loadDataFromStorage() {
           userReplies = [];
         }
 
-        if (localData.userLikedTopicsRaw) {
-          userLikedTopicsRaw = localData.userLikedTopicsRaw;
+        // Handle liked posts - check both keys and keep them in sync
+        if (localData.likedPosts && localData.likedPosts.length > 0) {
+          // If we have the new key, use it
+          likedPosts = localData.likedPosts;
+          // Keep userLikedTopicsRaw in sync for backward compatibility
+          userLikedTopicsRaw = localData.likedPosts;
           console.log(
-            `[Background] Loaded ${userLikedTopicsRaw.length} liked posts from storage.`
+            `[Background] Loaded ${likedPosts.length} liked posts from likedPosts key in storage.`
+          );
+        } else if (
+          localData.userLikedTopicsRaw &&
+          localData.userLikedTopicsRaw.length > 0
+        ) {
+          // Fall back to older key if the new one isn't populated
+          userLikedTopicsRaw = localData.userLikedTopicsRaw;
+          // Keep likedPosts in sync
+          likedPosts = localData.userLikedTopicsRaw;
+          console.log(
+            `[Background] Loaded ${userLikedTopicsRaw.length} liked posts from userLikedTopicsRaw key in storage.`
           );
         } else {
           console.log("[Background] No liked posts found in storage. Using defaults.");
           userLikedTopicsRaw = [];
+          likedPosts = [];
         }
+
+        // Log the global variables sizes after loading
+        console.log(
+          `[Background] After loading data - Posts: ${userWritingSamples.length}, Replies: ${userReplies.length}, Likes: ${likedPosts.length}`
+        );
         resolve();
       }
     );
@@ -2630,10 +2856,22 @@ async function loadDataFromStorage() {
  * @returns {Object} Object containing user posts, replies, liked posts, and other profile data
  */
 async function getUserProfileData() {
+  // If likedPosts is empty but userLikedTopicsRaw has data, sync them
+  if (
+    (!likedPosts || likedPosts.length === 0) &&
+    userLikedTopicsRaw &&
+    userLikedTopicsRaw.length > 0
+  ) {
+    likedPosts = userLikedTopicsRaw;
+    console.log(
+      "[Background] Synced likedPosts from userLikedTopicsRaw for backward compatibility"
+    );
+  }
+
   return {
     posts: userWritingSamples || [], // Original posts
     replies: userReplies || [], // Replies to other tweets
-    likedPosts: userLikedTopicsRaw || [], // Liked content
+    likedPosts: likedPosts || [], // Liked content (using the dedicated likedPosts variable)
     // Add any other profile data here
   };
 }
