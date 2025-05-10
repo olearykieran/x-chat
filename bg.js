@@ -471,7 +471,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 } else {
                   // No new replies, keep existing ones
                   userReplies = existingData.userReplies || [];
-                  console.log(`[Background] Preserving ${userReplies.length} existing replies`);
+                  console.log(
+                    `[Background] Preserving ${userReplies.length} existing replies`
+                  );
                 }
 
                 // Handle liked posts separately when dataType is "likes"
@@ -1077,9 +1079,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { rawTranscript, tone } = message.payload;
       const systemMessage =
         "You are an AI assistant. Polish the following voice transcript into a coherent and natural-sounding text, suitable for a social media post or reply. Ensure the output is concise, engaging, and ready for posting on X.com. Avoid conversational fillers and make it sound natural for a written post.\n\n" +
-        "Voice Transcript: \"" +
+        'Voice Transcript: "' +
         rawTranscript +
-        "\"\n\n" +
+        '"\n\n' +
         "Polished Text:";
       try {
         // Ensure callOpenAI signature matches: (apiKey, prompt, tone, customInstruction, userBio, userPosts, userLikes, systemMessageOverride, context)
@@ -1191,17 +1193,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       try {
         // Use the main prompt directly instead of the variation flow
-        console.log(
-          "[Background] Generating replies directly from the main prompt"
-        );
-        
+        console.log("[Background] Generating replies directly from the main prompt");
+
         // Use our main prompt to get all replies at once
         const mainResponse = await callOpenAI(userSettings.apiKey, prompt);
         console.log("[Background] Generated response from main prompt:", mainResponse);
-        
+
         // Process the main response
         let variations = [];
-        
+
         if (mainResponse) {
           console.log("[Background] Raw main response:", mainResponse);
 
@@ -1296,8 +1296,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               console.log(
                 "[Background] Detected POST_SEPARATOR format, properly splitting"
               );
-              const separatedVariations =
-                mainResponse.split(/###POST_SEPARATOR###/g);
+              const separatedVariations = mainResponse.split(/###POST_SEPARATOR###/g);
               if (separatedVariations.length >= 3) {
                 // Clean up each variation, removing all numbering and other artifacts
                 variations = separatedVariations
@@ -1335,9 +1334,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const extractedVariations = [];
               let variationMatch;
 
-              while (
-                (variationMatch = variationPattern.exec(mainResponse)) !== null
-              ) {
+              while ((variationMatch = variationPattern.exec(mainResponse)) !== null) {
                 let extractedText = variationMatch[1].trim();
 
                 // Additional cleaning to ensure we have no separators or trailing numbers
@@ -2182,90 +2179,6 @@ function removeHyphens(text) {
   return result;
 }
 
-// Extract topics of interest from user's bio
-async function extractTopicsFromBio(bio) {
-  if (!bio || bio.trim().length === 0) {
-    console.log("[Background] No bio provided for topic extraction");
-    return [];
-  }
-
-  try {
-    console.log("[Background] Extracting topics from bio:", bio);
-
-    const prompt = `
-      Extract the main topics, interests, professional fields, and areas of expertise from this Twitter/X bio.
-      Return ONLY a comma-separated list of specific topics (nouns and noun phrases only).
-      Example output format: "artificial intelligence, machine learning, tech startups, dog training"
-      
-      Bio: "${bio}"
-    `;
-
-    const response = await callOpenAI(userSettings.apiKey, prompt);
-
-    // Process the response to get a clean array of topics
-    if (response && response.trim()) {
-      const topics = response
-        .split(",")
-        .map((topic) => topic.trim())
-        .filter((topic) => topic.length > 0);
-
-      console.log("[Background] Extracted topics from bio:", topics);
-      return topics;
-    }
-
-    return [];
-  } catch (error) {
-    console.error("[Background] Error extracting topics from bio:", error);
-    return [];
-  }
-}
-
-// Analyze user's liked posts to identify patterns and topics
-async function analyzeLikedPosts(likedPosts) {
-  if (!likedPosts || !Array.isArray(likedPosts) || likedPosts.length === 0) {
-    console.log("[Background] No liked posts provided for analysis");
-    return [];
-  }
-
-  try {
-    console.log("[Background] Analyzing liked posts. Post count:", likedPosts.length);
-
-    // Use a subset of posts if there are too many (to avoid token limits)
-    const postsToAnalyze = likedPosts
-      .slice(0, 20)
-      .map((post) => post.text || post)
-      .filter(Boolean);
-
-    const prompt = `
-      Analyze these liked tweets and identify recurring topics, interests, and themes.
-      Return ONLY a comma-separated list of specific topics that appear multiple times (nouns and noun phrases only).
-      Focus on extracting topics that could be used for generating new tweet content.
-      Example output format: "artificial intelligence, sports news, cooking tips, data science"
-      
-      Tweets:
-      ${postsToAnalyze.join("\n")}
-    `;
-
-    const response = await callOpenAI(userSettings.apiKey, prompt);
-
-    // Process the response to get a clean array of topics
-    if (response && response.trim()) {
-      const topics = response
-        .split(",")
-        .map((topic) => topic.trim())
-        .filter((topic) => topic.length > 0);
-
-      console.log("[Background] Extracted topics from liked posts:", topics);
-      return topics;
-    }
-
-    return [];
-  } catch (error) {
-    console.error("[Background] Error analyzing liked posts:", error);
-    return [];
-  }
-}
-
 // Helper function to convert Data URL to Blob
 function dataURLtoBlob(dataurl) {
   if (!dataurl) return null;
@@ -2297,276 +2210,6 @@ function getFallbackTrendingTopics() {
 }
 
 // Generate tweets based on news and user interests
-async function generateTweetsWithNews(tone = "neutral", userInstruction = null) {
-  try {
-    console.log("[Background] Generating tweets with news and interests");
-
-    // Ensure all data is loaded from storage first
-    await loadDataFromStorage();
-    console.log("[Background] Data loading complete. Proceeding with tweet generation.");
-    console.log(
-      "[DEBUG] Global userLikedTopicsRaw after loadDataFromStorage:",
-      JSON.stringify(userLikedTopicsRaw ? userLikedTopicsRaw.slice(0, 3) : "N/A")
-    );
-
-    // 1. Extract topics from user bio
-    const bioTopics = await extractTopicsFromBio(userSettings.profileBio);
-    console.log("[Background] Topics from bio:", bioTopics);
-    console.log("[DEBUG] Extracted Bio Topics:", JSON.stringify(bioTopics, null, 2));
-
-    // 2. Analyze liked posts for topics
-    const likedPostsTopics = await analyzeLikedPosts(userLikedTopicsRaw); // Use the global userLikedTopicsRaw
-    console.log("[Background] Topics from liked posts:", likedPostsTopics);
-    console.log(
-      "[DEBUG] Extracted Liked Posts Topics:",
-      JSON.stringify(likedPostsTopics, null, 2)
-    );
-
-    // Combine topics and remove duplicates
-    const allTopics = [...new Set([...(bioTopics || []), ...(likedPostsTopics || [])])];
-    console.log("[Background] Combined unique topics:", allTopics);
-    console.log(
-      "[DEBUG] Combined Unique Topics for Search/Prompt:",
-      JSON.stringify(allTopics, null, 2)
-    );
-
-    // 3. Create a randomized search query using only a subset of topics to increase variety
-    let searchQuery;
-
-    // Check if user provided a specific search instruction
-    if (userInstruction && userInstruction.toLowerCase().includes("search for:")) {
-      searchQuery = userInstruction.split("search for:")[1].trim();
-      console.log(
-        `[Background] Overriding search query based on user instruction: "${searchQuery}"`
-      );
-    }
-    // Otherwise, create a randomized query
-    else {
-      // Get current date components for randomization seed
-      const now = new Date();
-      const minuteOfDay = now.getHours() * 60 + now.getMinutes();
-
-      // Randomly decide query approach based on time
-      const queryApproach = minuteOfDay % 4; // 0, 1, 2, or 3
-
-      // Different query approaches for variety
-      if (queryApproach === 0 && allTopics.length > 0) {
-        // Approach 1: Select 1-2 random topics + trending news
-        const shuffledTopics = [...allTopics].sort(() => 0.5 - Math.random());
-        const selectedTopics = shuffledTopics.slice(
-          0,
-          Math.min(2, shuffledTopics.length)
-        );
-        searchQuery = `current trending news about ${selectedTopics.join(" OR ")}`;
-      } else if (queryApproach === 1) {
-        // Approach 2: Focus on general trending topics with a broad category
-        const categories = [
-          "tech",
-          "AI",
-          "software",
-          "digital innovation",
-          "social media",
-          "web development",
-        ];
-        const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-        searchQuery = `latest trending topics in ${randomCategory}`;
-      } else if (queryApproach === 2) {
-        // Approach 3: Current news with a specific timeframe focus
-        searchQuery = "breaking news in technology last 24 hours";
-      } else {
-        // Approach 4: General trending news
-        searchQuery = "current trending topics in tech and AI";
-      }
-
-      console.log(
-        `[Background] Generated randomized search query: "${searchQuery}" (approach: ${queryApproach})`
-      );
-    }
-
-    console.log("[Background] Performing web search with query:", searchQuery);
-    const searchResults = await searchWeb(searchQuery);
-    console.log(
-      "[DEBUG] Raw Web Search Results:",
-      JSON.stringify(searchResults, null, 2)
-    );
-    if (searchResults && searchResults.text) {
-      console.log(
-        "[DEBUG] Web Search Results Text:",
-        searchResults.text.substring(0, 500) +
-          (searchResults.text.length > 500 ? "... (truncated)" : "")
-      );
-    }
-
-    // Prepare context for OpenAI
-    let newsContext = "";
-    let newsSource = "";
-    let trendingTopics = [];
-
-    if (searchResults && searchResults.text && searchResults.text.length > 50) {
-      newsContext = searchResults.text;
-      newsSource = "topics";
-      console.log("[Background] News search results acquired");
-
-      // Also get trending topics as supplementary context
-      try {
-        trendingTopics = await fetchTrendingTopics();
-      } catch (trendingError) {
-        console.error("[Background] Error fetching trending topics:", trendingError);
-        // Use default trending topics if fetch fails
-        trendingTopics = getFallbackTrendingTopics();
-      }
-    } else {
-      throw new Error("Insufficient news results");
-    }
-
-    // 4. Create a context for tweets based on either news or trending topics
-    if (newsSource === "trending" && trendingTopics.length > 0) {
-      newsContext = `Current trending topics: ${trendingTopics.join(", ")}.`;
-    }
-
-    // If we still don't have any context, provide a fallback
-    if (!newsContext) {
-      newsContext =
-        "Focus on general topics like technology, business, entertainment, or personal development.";
-    }
-
-    // 5. Generate tweet ideas using the context
-    const postSeparator = "###POST_SEPARATOR###";
-    const questionSeparator = "###QUESTIONS_SEPARATOR###";
-
-    let styleAndInterestContext = "";
-    if (userSettings.profileBio) {
-      styleAndInterestContext += `IMPORTANT - Match this bio/style: ${userSettings.profileBio}\n`;
-    }
-    // Assuming userWritingSamples and userReplies are accessible in this scope (e.g., global or passed in)
-    if (
-      typeof userWritingSamples !== "undefined" &&
-      userWritingSamples &&
-      userWritingSamples.length > 0
-    ) {
-      styleAndInterestContext += `User's writing samples (match style and topics):\n${userWritingSamples
-        .slice(0, 3)
-        .map((sample) =>
-          typeof sample === "string" ? sample : sample && sample.text ? sample.text : ""
-        )
-        .filter(Boolean)
-        .join("\n---\n")}\n`;
-    }
-    if (typeof userReplies !== "undefined" && userReplies && userReplies.length > 0) {
-      styleAndInterestContext += `User's past replies (emulate tone and common themes):\n${userReplies
-        .slice(0, 3)
-        .map((reply) =>
-          typeof reply === "string" ? reply : reply && reply.text ? reply.text : ""
-        )
-        .filter(Boolean)
-        .join("\n---\n")}\n`;
-    }
-    // likedPostsTopics is defined earlier in the function
-    if (likedPostsTopics && likedPostsTopics.length > 0) {
-      styleAndInterestContext += `User's liked topics (reflect these interests): ${likedPostsTopics.join(
-        ", "
-      )}\n`;
-    }
-
-    const prompt = `
-You are an AI assistant tasked with generating diverse and engaging social media content.
-
-CRITICAL INSTRUCTIONS:
-1.  ABSOLUTELY NO HASHTAGS. Do not use the '#' symbol for tags. Do not suggest hashtags.
-2.  AVOID UNNECESSARY HYPHENS. Only use hyphens if grammatically essential (e.g., in compound adjectives like 'thought-provoking'). Do not use them for emphasis or unusual word connections.
-3.  The user wants varied outputs. Avoid repetitive sentence structures or themes across the suggestions.
-4.  Match the user's voice, style, and interests derived from their profile, writing samples, replies, and liked topics provided below.
-
-Based on the following news context and user profile information:
-
-News Context:
-${newsContext}
-
-User Profile & Interests:
-${
-  styleAndInterestContext ||
-  "User profile information not extensively available. Focus on general appeal for the topics in the news context."
-}
-
-Task:
-1.  Generate 5 distinct tweet ideas, EACH ABOUT A COMPLETELY DIFFERENT TOPIC. Each tweet should be a complete thought, ready to post.
-    - CRITICAL: Each of the 5 tweets MUST cover a different topic or subject matter.
-    - Do not generate multiple variations or perspectives on the same topic.
-    - Draw from different parts of the news context or different user interests for each tweet.
-    - Ensure variety in tone, approach, and most importantly, subject matter for each tweet.
-    - Separate each tweet idea with "${postSeparator}".
-2.  Generate 3 thought-provoking questions. These questions should:
-    - Connect the News Context with the user's unique voice, style, and interests (as detailed in User Profile & Interests).
-    - Inspire personalized reflection and content creation for the user.
-    - Be formatted as "Question X: [Your question]".
-    - Separate each question with "${questionSeparator}".
-
-Output Format Example:
-[Tweet Idea 1]
-${postSeparator}
-[Tweet Idea 2]
-${postSeparator}
-[Tweet Idea 3]
-${postSeparator}
-[Tweet Idea 4]
-${postSeparator}
-[Tweet Idea 5]
-${questionSeparator}
-Question 1: [Question text]
-${questionSeparator}
-Question 2: [Question text]
-${questionSeparator}
-Question 3: [Question text]
-`;
-
-    console.log(
-      "[Background] Sending prompt to OpenAI for tweet generation:",
-      prompt.substring(0, 500) + (prompt.length > 500 ? "... (truncated)" : "")
-    );
-    try {
-      const response = await callOpenAI(
-        userSettings.apiKey,
-        prompt,
-        tone,
-        userInstruction,
-        userSettings.profileBio,
-        userWritingSamples,
-        userLikedTopicsRaw
-      );
-
-      // Process the response to get tweets and questions
-      const processedResponse = processAIResponse(
-        response,
-        postSeparator,
-        questionSeparator
-      );
-
-      // Ensure no hyphens in the final tweets
-      const cleanedTweets = processedResponse.replies.map((tweet) =>
-        removeHyphens(tweet)
-      );
-
-      // Format the response
-      const result = {
-        ideas: cleanedTweets,
-        // Only include trending topics if they're from a real source
-        trending: newsSource === "topics" || newsSource === "web" ? trendingTopics : [],
-        // Only include newsSource if it's a real source
-        newsSource: newsSource === "topics" || newsSource === "web" ? newsSource : "",
-        guidingQuestions: processedResponse.questions,
-      };
-
-      console.log("[Background] Generated tweets with context:", result);
-      return result;
-    } catch (error) {
-      console.error("[Background] Error generating tweets with news:", error);
-      throw error;
-    }
-  } catch (error) {
-    console.error("[Background] Error generating tweets with news:", error);
-    throw error;
-  }
-}
 
 // Listen for side panel open to show extension
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
