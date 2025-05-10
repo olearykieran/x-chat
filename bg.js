@@ -256,7 +256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             );
 
             if (!isProfilePage && !isLikesPage) {
-              console.error("[XCO-Injected] Not on a profile or likes page");
+              console.error("[XCO-Injected] Not on a valid page");
               return {
                 error:
                   "Not on a valid page. Please navigate to your X profile or likes page.",
@@ -451,13 +451,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     // New posts provided, update only posts
                     userWritingSamples = result.posts;
                     console.log(
-                      `[Background] Direct injection updating posts with ${userWritingSamples.length} new items`
+                      `[Background] Updating posts with ${userWritingSamples.length} new items`
                     );
                   } else {
                     // No new posts, keep existing ones
                     userWritingSamples = existingData.userWritingSamples || [];
                     console.log(
-                      `[Background] Direct injection preserving ${userWritingSamples.length} existing posts`
+                      `[Background] Preserving ${userWritingSamples.length} existing posts`
                     );
                   }
                 }
@@ -466,14 +466,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   // New replies provided, update only replies
                   userReplies = result.replies;
                   console.log(
-                    `[Background] Direct injection updating replies with ${userReplies.length} new items`
+                    `[Background] Updating replies with ${userReplies.length} new items`
                   );
                 } else {
                   // No new replies, keep existing ones
                   userReplies = existingData.userReplies || [];
-                  console.log(
-                    `[Background] Direct injection preserving ${userReplies.length} existing replies`
-                  );
+                  console.log(`[Background] Preserving ${userReplies.length} existing replies`);
                 }
 
                 // Handle liked posts separately when dataType is "likes"
@@ -1078,7 +1076,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       const { rawTranscript, tone } = message.payload;
       const systemMessage =
-        "You are an AI assistant. Polish the following voice transcript into a coherent and natural-sounding text, suitable for a social media post or reply. Ensure the user's original meaning and tone are preserved. IMPORTANT: Do not use hyphens (-) or double hyphens (--) in your output.";
+        "You are an AI assistant. Polish the following voice transcript into a coherent and natural-sounding text, suitable for a social media post or reply. Ensure the output is concise, engaging, and ready for posting on X.com. Avoid conversational fillers and make it sound natural for a written post.\n\n" +
+        "Voice Transcript: \"" +
+        rawTranscript +
+        "\"\n\n" +
+        "Polished Text:";
       try {
         // Ensure callOpenAI signature matches: (apiKey, prompt, tone, customInstruction, userBio, userPosts, userLikes, systemMessageOverride, context)
         const polishedText = await callOpenAI(
@@ -1144,7 +1146,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         ${
           writingSamples.length > 0
-            ? `IMPORTANT - Match the style, tone, and vocabulary of these writing samples:
+            ? `IMPORTANT - Match the style, tone, vocabulary, and sentence structure of these writing samples:
           ${writingSamples.map((sample, i) => `Sample ${i + 1}: "${sample}"`).join("\n")}`
             : ""
         }
@@ -1173,7 +1175,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         5.  Match the user's vocabulary level, sentence structure, and conversational style
         6.  Tone should be: ${tone || "neutral"}
         7.  Format each reply separated by "${postSeparator}"
-        
+        8.  Each reply must directly answer the tweet's question by providing the specific information or examples requested.
+        9.  Guiding questions should help the user brainstorm their own reply by connecting the tweet's content to their unique voice, style, and interests (derived from their bio, past tweets/replies, and liked topics).
+        10. **FULFILL EXPLICIT REQUESTS**: When the original tweet asks for specific items (e.g., ideas, names, examples, opinions, answers), your replies MUST attempt to **provide** those items. DO NOT merely comment on the act of asking or the topic of the request without offering actual examples/answers. Fulfilling the request is a top priority.
+        11. NO HASHTAGS: Absolutely no hashtags in the tweet suggestions. Do not suggest hashtags.
+
         AFTER THE REPLIES, INCLUDE "${questionSeparator}" FOLLOWED BY 3 CONTEXTUAL GUIDING QUESTIONS:
         1.  Create 3 thought-provoking questions that directly relate to the specific content of the tweet
         2.  These questions should help the user formulate their own thoughtful response
@@ -1299,11 +1305,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     // Start with trimming whitespace
                     let cleaned = v.trim();
                     // Remove any numbering like "1. " at the start
-                    cleaned = cleaned.replace(/^\s*\d+\s*\.\s*/, "");
+                    cleaned = cleaned.replace(/^\s*\d+\.\s*/, "");
                     // Remove any trailing numbers that might have leaked in
                     cleaned = cleaned.replace(/\s+\d+\.\s*$/g, "");
                     // Remove any remaining post separator tags
-                    cleaned = cleaned.replace(/###POST_SEPARATOR###/g, "");
+                    cleaned = cleaned.replace(/###\w+###/g, "");
                     // Final trim to clean up any leftover whitespace
                     cleaned = cleaned.trim();
                     return cleaned;
@@ -1798,8 +1804,8 @@ CRITICAL REPLY REQUIREMENTS:
 4.  DO NOT simply comment on the topic of the original tweet without actually responding to it.
 5.  Make it clear from your wording that this is a reply to the specific points in the original tweet.
 6.  The reply should make sense ONLY in the context of responding to the original tweet.
-
-Draft the reply now as if you ARE the user writing it themselves in direct response to @${tweetAuthorHandle}'s tweet:`;
+7.  Each reply must directly answer the tweet's question by providing the specific information or examples requested.
+`;
 
   console.log("[Background] FINAL PROMPT for generateReply:", prompt);
   console.log(
