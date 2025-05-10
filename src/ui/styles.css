@@ -59,6 +59,16 @@ body {
   gap: 8px;
 }
 
+.header-actions .button.secondary {
+  background-color: var(--bg-color);
+  color: var(--text-color); /* This will make the SVG stroke white */
+  border: 1px solid var(--border-color);
+}
+
+.header-actions .button.secondary:hover {
+  background-color: var(--hover-color); /* Keep a hover effect */
+}
+
 /* Tabs */
 .tabs {
   display: flex;
