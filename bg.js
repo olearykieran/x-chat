@@ -937,6 +937,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       isAsync = true;
       break;
 
+    case "SAVE_API_KEY":
+      console.log("[Background] Handling SAVE_API_KEY message");
+      (async () => {
+        try {
+          // Extract API key and useOwnKey flag from message
+          const { apiKey, useOwnKey } = message;
+          console.log("[Background] Saving API key and useOwnKey setting:", {
+            apiKeyProvided: !!apiKey,
+            useOwnKey
+          });
+
+          // Save to Chrome storage
+          await new Promise((resolve, reject) => {
+            chrome.storage.sync.set({ apiKey, useOwnKey }, () => {
+              if (chrome.runtime.lastError) {
+                console.error("[Background] Error saving API key to storage:", chrome.runtime.lastError);
+                reject(chrome.runtime.lastError);
+              } else {
+                console.log("[Background] API key and useOwnKey saved to storage successfully");
+                resolve();
+              }
+            });
+          });
+
+          // Update userSettings
+          userSettings.apiKey = apiKey;
+          userSettings.useOwnKey = useOwnKey;
+          console.log("[Background] userSettings updated with new API key and useOwnKey setting");
+
+          // Send success response
+          sendResponse({ success: true });
+        } catch (error) {
+          console.error("[Background] Error in SAVE_API_KEY handler:", error);
+          sendResponse({ error: error.message || "Failed to save API key" });
+        }
+      })();
+      isAsync = true;
+      break;
+      
     // Add other message types if needed
 
     default:
