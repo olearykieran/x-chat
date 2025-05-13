@@ -20,39 +20,25 @@ A Chrome Extension (Manifest v3) that adds a left-side "Messages-style" AI chat 
 2. Install dependencies:
 
 ```
-pnpm install
+npm install
 ```
 
-3. Build the extension:
-
-```
-pnpm build
-```
-
-4. Load the extension in Chrome:
+3. Load the extension in Chrome:
    - Open Chrome and navigate to `chrome://extensions/`
    - Enable "Developer mode"
-   - Click "Load unpacked" and select the `dist` directory
+   - Click "Load unpacked" and select the directory
 
 ### Configuration
 
 1. Click the extension icon to open the side panel
 2. Click the settings icon and enter your OpenAI API key
-3. Customize your profile bio and preferred hashtags
 
 ## Usage
 
-1. **Reply Mode**:
-
+1. **Polish Mode**:
    - Navigate to any tweet on X.com
-   - The extension will automatically generate a reply
-   - Refine it by chatting with the AI
-   - Click "Use Reply" to insert it into X.com's reply composer
-
-2. **Compose Mode**:
-   - Click the "Compose" tab in the panel
-   - View AI-generated tweet ideas based on trending topics
-   - Click "Use Tweet" to insert it into X.com's composer
+   - type or speak into the input box
+   - click polish and the extension will automatically polish the tweet
 
 ## Development
 

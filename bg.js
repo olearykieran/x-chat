@@ -679,10 +679,11 @@ async function handlePolishReplyRequest(contextTweet, userDraft) {
     4. DO NOT add any hashtags or suggestions for hashtags.
     5. DO NOT change the fundamental message or opinion expressed in the draft.
     6. MAINTAIN the same level of formality/informality as the original.
-    7. Focus ONLY on the user's provided draft text. Do NOT use any external context, such as information about a tweet it might be replying to. Your task is to refine the given text in isolation.
-    8. SEPARATE each variation with "###VARIATION###".
+    7. DO NOT add periods at the end of responses unless they're part of the original text or needed for questions (?) or exclamations (!). Most X.com posts don't end with periods.
+    8. Focus ONLY on the user's provided draft text. Do NOT use any external context, such as information about a tweet it might be replying to. Your task is to refine the given text in isolation.
+    9. SEPARATE each variation with "###VARIATION###".
     
-    Your polished variations should sound like improved versions of what the user would naturally write.`;
+    Your polished variations should sound like improved versions of what the user would naturally write on X.com.`;
 
     const polishedText = await callOpenAI(
       userSettings.apiKey,
@@ -886,19 +887,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   let isAsync = false;
 
   switch (message.type) {
-    case "WRITE_REPLY":
-      handleWriteReplyRequest(message.contextTweet, message.userPrompt)
-        .then((response) => {
-          console.log("[Background] Sending WRITE_REPLY response:", response);
-          sendResponse(response);
-        })
-        .catch((error) => {
-          console.error("[Background] Error handling WRITE_REPLY:", error);
-          sendResponse({ error: error.message || "Unknown error" });
-        });
-      isAsync = true; // Mark as async
-      break;
-
     case "POLISH_REPLY":
       handlePolishReplyRequest(message.contextTweet, message.userDraft)
         .then((response) => {
@@ -907,32 +895,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
         .catch((error) => {
           console.error("[Background] Error handling POLISH_REPLY:", error);
-          sendResponse({ error: error.message || "Unknown error" });
-        });
-      isAsync = true; // Mark as async
-      break;
-
-    case "WRITE_POST":
-      handleWritePostRequest(message.userPrompt)
-        .then((response) => {
-          console.log("[Background] Sending WRITE_POST response:", response);
-          sendResponse(response);
-        })
-        .catch((error) => {
-          console.error("[Background] Error handling WRITE_POST:", error);
-          sendResponse({ error: error.message || "Unknown error" });
-        });
-      isAsync = true; // Mark as async
-      break;
-
-    case "POLISH_POST":
-      handlePolishPostRequest(message.userDraft)
-        .then((response) => {
-          console.log("[Background] Sending POLISH_POST response:", response);
-          sendResponse(response);
-        })
-        .catch((error) => {
-          console.error("[Background] Error handling POLISH_POST:", error);
           sendResponse({ error: error.message || "Unknown error" });
         });
       isAsync = true; // Mark as async

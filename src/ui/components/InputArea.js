@@ -27,146 +27,12 @@ export function renderInputArea({
   textarea.id = "compose-input-" + Date.now();
   textarea.value = currentInput || "";
   
-  // Set appropriate placeholder text based on the active tab
-  if (activeTab === "reply") {
-    textarea.placeholder = inputPlaceholder || 'Type instructions for a reply or your draft to polish...';
-  } else {
-    textarea.placeholder = inputPlaceholder || "Type your idea to get 5 polished posts...";
-  }
+  // Set placeholder text - always use polish mode
+  textarea.placeholder = inputPlaceholder || 'Type your draft reply to polish...';
   
-  // Mode selection state - persist between renders using sessionStorage
-  let selectedMode = sessionStorage.getItem('xco_selected_mode') || "write"; // "write", "polish", or "post"
-  
-  // Action buttons container with better styling
-  const actionButtonsContainer = document.createElement("div");
-  actionButtonsContainer.className = "action-buttons-container";
-  actionButtonsContainer.style.display = "flex";
-  actionButtonsContainer.style.marginBottom = "10px";
-  actionButtonsContainer.style.borderRadius = "4px";
-  actionButtonsContainer.style.overflow = "hidden";
-  actionButtonsContainer.style.border = "1px solid #2F3336";
-  actionButtonsContainer.style.flexWrap = "wrap"; // Allow buttons to wrap on smaller screens
-  
-  // Write Reply button
-  const writeReplyButton = document.createElement("button");
-  writeReplyButton.className = "action-button" + (selectedMode === "write" ? " selected" : "");
-  writeReplyButton.textContent = "Write Reply";
-  writeReplyButton.style.flex = "1";
-  writeReplyButton.style.padding = "8px 12px";
-  writeReplyButton.style.border = "none";
-  writeReplyButton.style.background = selectedMode === "write" ? "#1DA1F2" : "#15181C";
-  writeReplyButton.style.color = selectedMode === "write" ? "white" : "#8899A6";
-  writeReplyButton.style.fontWeight = selectedMode === "write" ? "bold" : "normal";
-  writeReplyButton.style.cursor = "pointer";
-  writeReplyButton.style.transition = "all 0.2s ease";
-  
-  writeReplyButton.addEventListener("click", () => {
-    selectedMode = "write";
-    sessionStorage.setItem('xco_selected_mode', selectedMode);
-    writeReplyButton.classList.add("selected");
-    writeReplyButton.style.background = "#1DA1F2";
-    writeReplyButton.style.color = "white";
-    writeReplyButton.style.fontWeight = "bold";
-    
-    polishReplyButton.classList.remove("selected");
-    polishReplyButton.style.background = "#15181C";
-    polishReplyButton.style.color = "#8899A6";
-    polishReplyButton.style.fontWeight = "normal";
-    
-    makePostButton.classList.remove("selected");
-    makePostButton.style.background = "#15181C";
-    makePostButton.style.color = "#8899A6";
-    makePostButton.style.fontWeight = "normal";
-    
-    textarea.placeholder = 'Type instructions for a reply (e.g., "make it funny")...';
-  });
-  
-  // Polish Reply button
-  const polishReplyButton = document.createElement("button");
-  polishReplyButton.className = "action-button" + (selectedMode === "polish" ? " selected" : "");
-  polishReplyButton.textContent = "Polish Reply";
-  polishReplyButton.style.flex = "1";
-  polishReplyButton.style.padding = "8px 12px";
-  polishReplyButton.style.border = "none";
-  polishReplyButton.style.background = selectedMode === "polish" ? "#1DA1F2" : "#15181C";
-  polishReplyButton.style.color = selectedMode === "polish" ? "white" : "#8899A6";
-  polishReplyButton.style.fontWeight = selectedMode === "polish" ? "bold" : "normal";
-  polishReplyButton.style.cursor = "pointer";
-  polishReplyButton.style.transition = "all 0.2s ease";
-  
-  polishReplyButton.addEventListener("click", () => {
-    selectedMode = "polish";
-    sessionStorage.setItem('xco_selected_mode', selectedMode);
-    // Deselect all buttons
-    writeReplyButton.classList.remove("selected");
-    writeReplyButton.style.background = "#15181C";
-    writeReplyButton.style.color = "#8899A6";
-    writeReplyButton.style.fontWeight = "normal";
-    
-    makePostButton.classList.remove("selected");
-    makePostButton.style.background = "#15181C";
-    makePostButton.style.color = "#8899A6";
-    makePostButton.style.fontWeight = "normal";
-    
-    // Select polish button
-    polishReplyButton.classList.add("selected");
-    polishReplyButton.style.background = "#1DA1F2";
-    polishReplyButton.style.color = "white";
-    polishReplyButton.style.fontWeight = "bold";
-    
-    textarea.placeholder = 'Type your draft reply to polish...';
-  });
-  
-  // Make New Post button
-  const makePostButton = document.createElement("button");
-  makePostButton.className = "action-button" + (selectedMode === "post" ? " selected" : "");
-  makePostButton.textContent = "Make New Post";
-  makePostButton.style.flex = "1";
-  makePostButton.style.padding = "8px 12px";
-  makePostButton.style.border = "none";
-  makePostButton.style.background = selectedMode === "post" ? "#1DA1F2" : "#15181C";
-  makePostButton.style.color = selectedMode === "post" ? "white" : "#8899A6";
-  makePostButton.style.fontWeight = selectedMode === "post" ? "bold" : "normal";
-  makePostButton.style.cursor = "pointer";
-  makePostButton.style.transition = "all 0.2s ease";
-  
-  makePostButton.addEventListener("click", () => {
-    selectedMode = "post";
-    sessionStorage.setItem('xco_selected_mode', selectedMode);
-    
-    // Deselect other buttons
-    writeReplyButton.classList.remove("selected");
-    writeReplyButton.style.background = "#15181C";
-    writeReplyButton.style.color = "#8899A6";
-    writeReplyButton.style.fontWeight = "normal";
-    
-    polishReplyButton.classList.remove("selected");
-    polishReplyButton.style.background = "#15181C";
-    polishReplyButton.style.color = "#8899A6";
-    polishReplyButton.style.fontWeight = "normal";
-    
-    // Select post button
-    makePostButton.classList.add("selected");
-    makePostButton.style.background = "#1DA1F2";
-    makePostButton.style.color = "white";
-    makePostButton.style.fontWeight = "bold";
-    
-    textarea.placeholder = 'Describe what you want to post about...';
-  });
-  
-  // Set initial placeholder based on selected mode
-  if (selectedMode === "polish") {
-    textarea.placeholder = 'Type your draft reply to polish...';
-  } else if (selectedMode === "post") {
-    textarea.placeholder = 'Describe what you want to post about...';
-  } else {
-    textarea.placeholder = 'Type instructions for a reply (e.g., "make it funny")...';
-  }
-  
-  actionButtonsContainer.appendChild(writeReplyButton);
-  actionButtonsContainer.appendChild(polishReplyButton);
-  actionButtonsContainer.appendChild(makePostButton);
-  container.appendChild(actionButtonsContainer);
+  // Always use polish mode
+  const selectedMode = "polish";
+  sessionStorage.setItem('xco_selected_mode', selectedMode);
   
   // Input container
   const inputContainer = document.createElement("div");
@@ -246,12 +112,8 @@ export function renderInputArea({
   // Send button
   const sendButton = document.createElement("button");
   sendButton.className = "send-button";
-  sendButton.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="22" y1="2" x2="11" y2="13"></line>
-      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-    </svg>
-  `;
+  sendButton.textContent = "Polish";
+  sendButton.style.padding = "8px 16px";
   
   // Send message function
   function sendMessage() {

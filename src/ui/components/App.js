@@ -138,156 +138,54 @@ function handleInputSend(text, mode) {
   const state = getState();
   const tweet = state.currentTweet;
 
-  // Skip tweet check for now - it's causing problems
-  // We'll rely on the background script to handle this validation
   console.log("[App.js] Current tweet:", tweet);
+  console.log("[App.js] Polish mode with text:", text);
 
-  // In Write Reply mode, the text is instructions for the AI, not a message to display
-  // In Polish Reply mode, the text is a draft reply that should be displayed
-  // In Post mode, the text is a description of what to post about
-  if (mode === "polish") {
-    // Only add the user message to the chat in Polish mode
-    addMessage("user", text);
-  } else if (mode === "post") {
-    // In Post mode, add a post request indicator
-    addMessage("user", `New Post Request: ${text}`);
-  } else {
-    // In Write mode, add an instruction indicator instead
-    addMessage("user", `Instructions: ${text}`);
-  }
+  // Add the user's draft message to the chat
+  addMessage("user", text);
 
   setCurrentInputText(""); // Clear input
   setLoadingState(true);
 
-  if (mode === "write") {
-    // Write Reply mode: treat input as instructions
-    chrome.runtime.sendMessage(
-      {
-        type: "WRITE_REPLY",
-        contextTweet: tweet,
-        userPrompt: text,
-      },
-      (response) => {
-        setLoadingState(false);
+  // Always use Polish Reply mode
+  chrome.runtime.sendMessage(
+    {
+      type: "POLISH_REPLY",
+      contextTweet: tweet,
+      userDraft: text,
+    },
+    (response) => {
+      setLoadingState(false);
 
-        // Handle chrome runtime errors
-        if (chrome.runtime.lastError) {
-          console.error("[App.js] Error sending WRITE_REPLY:", chrome.runtime.lastError);
-          setError("Error sending WRITE_REPLY: " + chrome.runtime.lastError.message);
-          return;
-        }
+      // Handle chrome runtime errors
+      if (chrome.runtime.lastError) {
+        console.error("[App.js] Error sending POLISH_REPLY:", chrome.runtime.lastError);
+        setError("Error sending POLISH_REPLY: " + chrome.runtime.lastError.message);
+        return;
+      }
 
-        console.log("[App.js] WRITE_REPLY full response:", response);
-        console.log("[App.js] WRITE_REPLY has guidingQuestions?", 
-          response.guidingQuestions ? `Yes, ${response.guidingQuestions.length} questions` : "No");
+      console.log("[App.js] POLISH_REPLY full response:", response);
 
-        // Handle the response - try multiple potential response formats
-        if (response && response.reply) {
-          // Standard response format
-          addMessage("ai", response.reply, response.allReplies || null);
-          // Display brainstorming questions if available
-          if (response.guidingQuestions && response.guidingQuestions.length > 0) {
-            console.log("[App.js] Rendering brainstorming questions:", response.guidingQuestions);
-            renderBrainstormQuestions(response.guidingQuestions);
-          } else {
-            console.log("[App.js] No guiding questions available to render");
-          }
-          console.log("[App.js] Added AI reply to chat:", response.reply);
-        } else if (response && response.error) {
-          setError(response.error);
-        } else {
-          // Handle other response formats
-          console.log("[App.js] Response received but no reply property");
-          if (response) {
-            // Try to extract any usable text from the response
-            const replyText =
-              response.text || response.content || JSON.stringify(response);
-            addMessage("ai", replyText);
-            console.log("[App.js] Added fallback AI reply to chat:", replyText);
-          }
+      // Handle the response - try multiple potential response formats
+      if (response && response.reply) {
+        // Standard response format
+        addMessage("ai", response.reply, response.allReplies || null);
+        console.log("[App.js] Added AI reply to chat:", response.reply);
+      } else if (response && response.error) {
+        setError(response.error);
+      } else {
+        // Handle other response formats
+        console.log("[App.js] Response received but no reply property");
+        if (response) {
+          // Try to extract any usable text from the response
+          const replyText =
+            response.text || response.content || JSON.stringify(response);
+          addMessage("ai", replyText);
+          console.log("[App.js] Added fallback AI reply to chat:", replyText);
         }
       }
-    );
-  } else if (mode === "post") {
-    // Post mode: treat input as a request to create a new post
-    chrome.runtime.sendMessage(
-      {
-        type: "WRITE_POST",
-        userPrompt: text,
-      },
-      (response) => {
-        setLoadingState(false);
-
-        // Handle chrome runtime errors
-        if (chrome.runtime.lastError) {
-          console.error("[App.js] Error sending WRITE_POST:", chrome.runtime.lastError);
-          setError("Error sending WRITE_POST: " + chrome.runtime.lastError.message);
-          return;
-        }
-
-        console.log("[App.js] WRITE_POST full response:", response);
-
-        // Handle the response - try multiple potential response formats
-        if (response && response.reply) {
-          // Standard response format
-          addMessage("ai", response.reply, response.allReplies || null);
-          console.log("[App.js] Added AI post to chat:", response.reply);
-        } else if (response && response.error) {
-          setError(response.error);
-        } else {
-          // Handle other response formats
-          console.log("[App.js] Response received but no reply property");
-          if (response) {
-            // Try to extract any usable text from the response
-            const replyText =
-              response.text || response.content || JSON.stringify(response);
-            addMessage("ai", replyText);
-            console.log("[App.js] Added fallback AI post to chat:", replyText);
-          }
-        }
-      }
-    );
-  } else if (mode === "polish") {
-    // Polish Reply mode: treat input as draft
-    chrome.runtime.sendMessage(
-      {
-        type: "POLISH_REPLY",
-        contextTweet: tweet,
-        userDraft: text,
-      },
-      (response) => {
-        setLoadingState(false);
-
-        // Handle chrome runtime errors
-        if (chrome.runtime.lastError) {
-          console.error("[App.js] Error sending POLISH_REPLY:", chrome.runtime.lastError);
-          setError("Error sending POLISH_REPLY: " + chrome.runtime.lastError.message);
-          return;
-        }
-
-        console.log("[App.js] POLISH_REPLY full response:", response);
-
-        // Handle the response - try multiple potential response formats
-        if (response && response.reply) {
-          // Standard response format
-          addMessage("ai", response.reply, response.allReplies || null);
-          console.log("[App.js] Added AI reply to chat:", response.reply);
-        } else if (response && response.error) {
-          setError(response.error);
-        } else {
-          // Handle other response formats
-          console.log("[App.js] Response received but no reply property");
-          if (response) {
-            // Try to extract any usable text from the response
-            const replyText =
-              response.text || response.content || JSON.stringify(response);
-            addMessage("ai", replyText);
-            console.log("[App.js] Added fallback AI reply to chat:", replyText);
-          }
-        }
-      }
-    );
-  }
+    }
+  );
 }
 
 // Helper function to render brainstorming questions
