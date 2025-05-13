@@ -8,19 +8,13 @@ export function renderTabs({ activeTab, onTabChange }) {
   tabs.className = 'tabs';
   
   const replyTab = document.createElement('div');
-  replyTab.className = `tab ${activeTab === 'reply' ? 'active' : ''}`;
+  replyTab.className = `tab active`; // Always active since it's the only tab
   replyTab.textContent = 'Reply';
-  replyTab.addEventListener('click', () => onTabChange('reply'));
   
-  const composeTab = document.createElement('div');
-  composeTab.className = `tab ${activeTab === 'compose' ? 'active' : ''}`;
-  composeTab.textContent = 'Compose';
-  composeTab.addEventListener('click', () => onTabChange('compose'));
-  
+  // Compose tab removed - functionality moved to Make New Post button
   // Schedule tab removed as it's not currently functional
   
   tabs.appendChild(replyTab);
-  tabs.appendChild(composeTab);
   
   return tabs;
 }

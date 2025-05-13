@@ -65,8 +65,6 @@ export async function initializeState() {
           messages: [] // Clear messages when tweet changes
         });
         
-        // Auto-generate reply
-        generateReply();
       }
       
       if (message.type === 'COMPOSE_MODE') {
@@ -131,9 +129,6 @@ function checkCurrentContext() {
             messages: [], // Clear messages when auto-selecting a new tweet
             loading: false
           });
-          
-          // Auto-generate reply if we have a tweet selected
-          generateReply();
         } else {
           console.log('[Sidepanel State] No tweet currently focused. Defaulting to compose.');
           // We're either in compose mode or no tweet is focused
@@ -253,7 +248,7 @@ function generateReply() {
  * @param {string} text - Message text
  * @param {Array} [allReplies] - Optional array of all AI-generated replies
  */
-function addMessage(sender, text, allReplies = null) {
+export function addMessage(sender, text, allReplies = null) {
   const newMessage = {
     sender,
     text,
@@ -363,12 +358,9 @@ export function useText(text) {
 export function changeTone(tone) {
   updateState({ selectedTone: tone });
   
-  // Regenerate based on active tab
-  if (currentState.activeTab === 'reply' && currentState.currentTweet) {
-    generateReply();
-  } else if (currentState.activeTab === 'compose') {
-    fetchTrendingAndGenerateIdeas();
-  }
+  // Only update tone in state. Do not auto-generate reply or ideas.
+  // (User must explicitly trigger generation)
+
 }
 
 /**
@@ -489,20 +481,39 @@ export function setInputPlaceholder(text) {
  */
 export function updateState(updates) {
   console.log('[State] Update State Called With:', updates);
+
+  // Determine if this is just an input update
+  const keys = Object.keys(updates);
+  const isOnlyInputChange = keys.length === 1 && keys[0] === 'currentInput';
+
+  // Apply updates (original logic structure)
   if (updates.settings) {
     console.log('[State] updateState: Updating settings. Current settings before update:', JSON.parse(JSON.stringify(currentState.settings)));
     currentState.settings = { ...currentState.settings, ...updates.settings };
-    console.log('[State] updateState: Settings after update:', JSON.parse(JSON.stringify(currentState.settings)));
+    console.log('[State] updateState: Settings updated:', JSON.parse(JSON.stringify(currentState.settings)));
+    // If settings are updated, we always notify
+    console.log('[State] Notifying listeners due to settings update.');
+    notifyListeners();
   } else {
     // Ensure currentState is an object before spreading
     if (typeof currentState !== 'object' || currentState === null) {
       console.error('[State] updateState: currentState is not an object. Initializing to empty object before merge.');
       currentState = {};
     }
+    // Apply general updates
     currentState = { ...currentState, ...updates };
+    console.log('[State] Current State After Update (non-settings):', JSON.parse(JSON.stringify(currentState)));
+
+    // --- Conditional Notification --- 
+    // Only notify listeners (and trigger re-render) if it's NOT just an input change
+    if (!isOnlyInputChange) {
+      console.log('[State] Notifying listeners because update was not just for currentInput.');
+      notifyListeners(); 
+    } else {
+      console.log('[State] Skipping listener notification for currentInput update.');
+    }
   }
-  console.log('[State] Current State After Update:', JSON.parse(JSON.stringify(currentState)));
-  notifyListeners();
+  // Removed unconditional notifyListeners() from here
 }
 
 /**
