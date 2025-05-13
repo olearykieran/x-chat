@@ -878,6 +878,67 @@ async function handleGenerateQuestionsRequest(contextTweet, sendResponse) {
   }
 }
 
+/**
+ * Generate a final polished reply based on tweet context and user input
+ * @param {Object} contextTweet - The tweet being replied to
+ * @param {string} userText - The user's input text
+ * @returns {Promise<Object>} - Response with the generated reply
+ */
+async function handleGetFinalReply(contextTweet, userText) {
+  console.log("[Background] Handling Get Final Reply request:", { 
+    tweetText: contextTweet?.tweetText,
+    userText: userText 
+  });
+
+  if (!userText || userText.trim().length === 0) {
+    return { error: "No user text provided for generating reply." };
+  }
+
+  try {
+    const prompt = `Tweet I'm replying to: "${contextTweet?.tweetText || ''}"\n\nMy input: "${userText}"\n\nGenerate a single, polished reply based on my input.`;
+
+    const systemMessage = `You are an expert X.com user who produces high-quality content. You will generate ONE reply in the style of a top content creator.\n\n
+    CRITICAL INSTRUCTIONS:\n
+    1. Create exactly ONE reply based on the user's input and the context of the tweet they're replying to\n
+    2. DO NOT use hyphens or dashes of any kind (-, –, —). Use spaces instead\n
+    3. Make the reply directly address the ORIGINAL TWEET it's responding to\n
+    4. Avoid ANY generic AI-sounding language like "I understand", "I see", "That's interesting", etc\n
+    5. Your reply should be concise but contextually relevant to both the original tweet and the user's input\n
+    6. DO NOT include multiple options or variations\n
+    7. DO NOT number your response or use bullet points\n
+    8. DO NOT add any metadata, prefixes, or explain what you're doing\n
+    Just write the single reply as it would appear on X.com.`;
+
+    const finalReply = await callOpenAI(
+      userSettings.apiKey,
+      prompt,
+      "conversational",
+      null,
+      userSettings.profileBio || "",
+      [],
+      [],
+      systemMessage,
+      "gpt-4.1-nano",
+      0.7
+    );
+
+    // Clean the reply of any AI-typical markers
+    const cleanedReply = finalReply
+      .trim()
+      .replace(/[-\u2013\u2014]/g, " ")
+      .replace(/\s+/g, " ");
+
+    return {
+      reply: cleanedReply,
+      allReplies: [cleanedReply],
+      originalMode: "write"
+    };
+  } catch (error) {
+    console.error("[Background] Error in handleGetFinalReply:", error);
+    return { error: error.message || "Failed to generate reply" };
+  }
+}
+
 // --- Add Message Listener ---
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -937,6 +998,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       isAsync = true;
       break;
 
+    case "GET_FINAL_REPLY":
+      console.log("[Background] Handling GET_FINAL_REPLY message");
+      handleGetFinalReply(message.contextTweet, message.userText)
+        .then((response) => {
+          console.log("[Background] Sending GET_FINAL_REPLY response:", response);
+          sendResponse(response);
+        })
+        .catch((error) => {
+          console.error("[Background] Error handling GET_FINAL_REPLY:", error);
+          sendResponse({ error: error.message || "Unknown error" });
+        });
+      isAsync = true;
+      break;
+
     case "SAVE_API_KEY":
       console.log("[Background] Handling SAVE_API_KEY message");
       (async () => {
@@ -974,6 +1049,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       })();
       isAsync = true;
+      break;
+      
+    case "TWEET_FOCUSED":
+      console.log("[Background] Handling TWEET_FOCUSED message");
+      // Simply acknowledge the message - the sidepanel state.js already handles updating the UI
+      sendResponse({ success: true });
+      break;
+      
+    case "MARK_FETCHING_QUESTIONS":
+      console.log("[Background] Handling MARK_FETCHING_QUESTIONS message");
+      // Simply acknowledge the message - this is likely just tracking state in the UI
+      sendResponse({ success: true });
       break;
       
     // Add other message types if needed
