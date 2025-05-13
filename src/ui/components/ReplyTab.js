@@ -3,8 +3,8 @@
  * @param {Object} props - Component props
  * @returns {HTMLElement} - Reply tab element
  */
-export function renderReplyTab({ tweet, messages, onUseReply }) {
-  console.log("[ReplyTab] renderReplyTab called. Type of onUseReply:", typeof onUseReply);
+export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetContextCache, fetchingQuestionsForTweetId }) {
+  console.log("[ReplyTab] renderReplyTab called. isLoading:", isLoading, "Fetching for:", fetchingQuestionsForTweetId);
   const container = document.createElement("div");
 
   // If no tweet is selected
@@ -19,7 +19,6 @@ export function renderReplyTab({ tweet, messages, onUseReply }) {
 
   const tweetAuthor = document.createElement("div");
   tweetAuthor.className = "tweet-author";
-  // Remove @ symbol if it's already in the handle
   const authorHandle = tweet.tweetAuthorHandle || "author";
   tweetAuthor.textContent = authorHandle.startsWith("@")
     ? authorHandle
@@ -33,49 +32,96 @@ export function renderReplyTab({ tweet, messages, onUseReply }) {
   tweetCard.appendChild(tweetText);
   container.appendChild(tweetCard);
 
-  // Only generate brainstorming questions once per tweet
-  // Check if we've already generated questions for this tweet
+  // --- Brainstorming Questions Section --- 
   const tweetId = tweet.tweetUrl || tweet.tweetText;
-  if (!container.hasAttribute("data-questions-generated")) {
-    console.log("[ReplyTab] Generating questions for tweet:", tweetId);
-    container.setAttribute("data-questions-generated", "true");
+  const questionsSectionContainer = document.createElement("div");
+  questionsSectionContainer.className = "questions-section-container";
 
+  const cachedQuestions = tweetContextCache ? tweetContextCache[tweetId] : null;
+
+  if (cachedQuestions && cachedQuestions.length > 0) {
+    console.log("[ReplyTab] Rendering cached questions for tweet:", tweetId, cachedQuestions);
+    const qSection = document.createElement("div");
+    qSection.className = "brainstorm-section";
+    qSection.style.margin = "12px 0";
+    qSection.style.padding = "12px";
+    qSection.style.backgroundColor = "rgba(29, 161, 242, 0.1)";
+    qSection.style.borderRadius = "8px";
+
+    const qHeading = document.createElement("h3");
+    qHeading.textContent = "Brainstorm Your Own Reply";
+    qHeading.style.margin = "0 0 8px 0";
+    qHeading.style.fontSize = "14px";
+    qHeading.style.fontWeight = "bold";
+    qHeading.style.color = "#1DA1F2";
+    qSection.appendChild(qHeading);
+
+    const qList = document.createElement("ul");
+    qList.style.margin = "8px 0 0 0";
+    qList.style.paddingLeft = "20px";
+    cachedQuestions.forEach((question) => {
+      const li = document.createElement("li");
+      li.textContent = question;
+      li.style.margin = "4px 0";
+      li.style.fontSize = "13px";
+      qList.appendChild(li);
+    });
+    qSection.appendChild(qList);
+    questionsSectionContainer.appendChild(qSection);
+  } else if (fetchingQuestionsForTweetId === tweetId) {
+    console.log("[ReplyTab] Questions are currently being fetched for tweet:", tweetId);
+    const loadingText = document.createElement("p");
+    loadingText.textContent = "Loading brainstorming questions...";
+    loadingText.className = "loading-questions-text";
+    loadingText.style.padding = "12px"; 
+    loadingText.style.textAlign = "center";
+    questionsSectionContainer.appendChild(loadingText);
+  } else {
+    console.log("[ReplyTab] Initiating fetch for questions for tweet:", tweetId);
+    
+    // 1. Tell state.js we are starting to fetch for this tweetId
+    chrome.runtime.sendMessage({
+        type: "MARK_FETCHING_QUESTIONS", 
+        payload: { tweetId: tweetId }
+    });
+
+    // 2. Request questions from background script
     chrome.runtime.sendMessage(
       { type: "GENERATE_QUESTIONS", contextTweet: tweet },
-      (resp) => {
-        console.log("[ReplyTab] Generated questions:", resp.questions);
-        if (resp.questions && resp.questions.length > 0) {
-          const qSection = document.createElement("div");
-          qSection.className = "brainstorm-section";
-          qSection.style.margin = "12px 0";
-          qSection.style.padding = "12px";
-          qSection.style.backgroundColor = "rgba(29, 161, 242, 0.1)";
-          qSection.style.borderRadius = "8px";
-
-          const qHeading = document.createElement("h3");
-          qHeading.textContent = "Brainstorm Your Own Reply";
-          qHeading.style.margin = "0 0 8px 0";
-          qHeading.style.fontSize = "14px";
-          qHeading.style.fontWeight = "bold";
-          qHeading.style.color = "#1DA1F2";
-          qSection.appendChild(qHeading);
-
-          const qList = document.createElement("ul");
-          qList.style.margin = "8px 0 0 0";
-          qList.style.paddingLeft = "20px";
-          resp.questions.forEach((question) => {
-            const li = document.createElement("li");
-            li.textContent = question;
-            li.style.margin = "4px 0";
-            li.style.fontSize = "13px";
-            qList.appendChild(li);
+      (ackResponse) => {
+        if (ackResponse && ackResponse.success) {
+          console.log("[ReplyTab] GENERATE_QUESTIONS acknowledged for tweet:", tweetId, ackResponse.message);
+        } else if (ackResponse && ackResponse.error) {
+          console.error("[ReplyTab] Error from GENERATE_QUESTIONS call:", ackResponse.error);
+          const errorTextElement = questionsSectionContainer.querySelector('.error-questions-text') || document.createElement("p");
+          errorTextElement.textContent = `Error loading questions: ${ackResponse.error}. Please try again.`;
+          errorTextElement.className = "error-questions-text";
+          errorTextElement.style.color = "red";
+          errorTextElement.style.padding = "12px";
+          errorTextElement.style.textAlign = "center";
+          if (!questionsSectionContainer.contains(errorTextElement)) {
+            questionsSectionContainer.innerHTML = ''; // Clear previous content like loading message
+            questionsSectionContainer.appendChild(errorTextElement);
+          }
+          // Optionally, tell state.js to clear fetchingQuestionsForTweetId if the initiation failed
+          chrome.runtime.sendMessage({
+            type: "CLEAR_FETCHING_QUESTIONS", // New message type for state.js to reset if needed
+            payload: { tweetId: tweetId }
           });
-          qSection.appendChild(qList);
-          container.appendChild(qSection);
         }
       }
     );
+
+    // Show loading state immediately
+    const loadingText = document.createElement("p");
+    loadingText.textContent = "Loading brainstorming questions...";
+    loadingText.className = "loading-questions-text";
+    loadingText.style.padding = "12px";
+    loadingText.style.textAlign = "center";
+    questionsSectionContainer.appendChild(loadingText);
   }
+  container.appendChild(questionsSectionContainer);
+  // --- End Brainstorming Questions Section ---
 
   // Results container for displaying AI-generated content
   const resultsContainer = document.createElement("div");

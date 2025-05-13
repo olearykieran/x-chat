@@ -76,33 +76,30 @@ function render() {
   // Content section
   let content;
 
-  // Loading indicator takes priority
-  if (state.loading) {
-    content = renderLoadingIndicator();
-  }
-  // Then error messages
-  else if (state.error) {
+  // Error messages take priority
+  if (state.error) {
     content = renderErrorMessage(state.error);
   }
-  // Then message display if no error
-  else if (state.message) {
+  // Then general info messages (if any), but only if not also in a loading state that would be shown elsewhere
+  else if (state.message && !state.loading) { 
     const messageElement = renderErrorMessage(state.message);
     // Customize styling for non-error messages
     messageElement.style.backgroundColor = "rgba(29, 161, 242, 0.1)";
     messageElement.style.borderColor = "var(--primary-color)";
     content = messageElement;
   }
-  // Only Reply tab content now
+  // Always render ReplyTab otherwise, passing loading state to it
   else {
     content = renderReplyTab({
       tweet: state.currentTweet,
       messages: state.messages,
-      onUseReply: (text) => useText(text), // Function to use the selected reply
+      isLoading: state.loading, // Pass loading state down
+      onUseReply: (text) => useText(text),
       onRegenerateReply: (tweet) => handleRegenerateReply(tweet),
+      tweetContextCache: state.tweetContextCache,
+      fetchingQuestionsForTweetId: state.fetchingQuestionsForTweetId,
     });
   }
-  // Schedule tab has been removed as it's not currently functional
-
   root.appendChild(content);
 
   // Input area

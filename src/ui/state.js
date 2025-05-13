@@ -26,6 +26,9 @@ let currentState = {
   selectedTone: 'neutral',
   inputPlaceholder: 'Type your instructions, or click the tweet button to generate a reply...', // New placeholder state
   
+  // NEW STATE FOR QUESTION CACHING
+  tweetContextCache: {}, // { tweetId: { questions: [...] } }
+  fetchingQuestionsForTweetId: null, // Stores tweetId if questions are being fetched
 };
 
 // Listeners for state changes
@@ -87,6 +90,88 @@ export async function initializeState() {
       if (message.type === 'AI_REPLY_ERROR') {
         console.error('[Sidepanel State] AI_REPLY_ERROR received:', message.error);
         updateState({ loading: false, error: message.error });
+      }
+
+      // New handlers for specific results from bg.js
+      if (message.type === 'REPLY_RESULT') {
+        console.log('[Sidepanel State] REPLY_RESULT received:', message.data);
+        addMessage('ai', message.data.reply, message.data.allReplies, message.data.guidingQuestions);
+        updateState({ loading: false, error: null });
+        if (message.data.originalMode === 'write') {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'FILL_REPLY_BOX', text: message.data.reply });
+            }
+          });
+        }
+      }
+
+      if (message.type === 'POLISH_RESULT') {
+        console.log('[Sidepanel State] POLISH_RESULT received:', message.data);
+        addMessage('ai', message.data.reply, message.data.allReplies, message.data.guidingQuestions);
+        updateState({ loading: false, error: null });
+        // Assuming polish was for a reply context if originalMode is 'polish'
+        if (message.data.originalMode === 'polish') { 
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'FILL_REPLY_BOX', text: message.data.reply });
+            }
+          });
+        }
+      }
+
+      if (message.type === 'POST_RESULT') {
+        console.log('[Sidepanel State] POST_RESULT received:', message.data);
+        addMessage('ai', message.data.reply, message.data.allReplies, message.data.guidingQuestions);
+        updateState({ loading: false, error: null });
+        if (message.data.originalMode === 'post') {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: 'FILL_COMPOSE_BOX', text: message.data.reply });
+            }
+          });
+        }
+      }
+
+      // NEW: Handle received brainstorming questions
+      if (message.type === 'QUESTIONS_RECEIVED') {
+        const { tweetId, questions } = message.payload;
+        console.log(`[Sidepanel State] Received QUESTIONS_RECEIVED for ${tweetId}:`, questions);
+        if (tweetId && questions) {
+          const newCache = { ...currentState.tweetContextCache };
+          // Ensure the structure matches: { tweetId: questions_array }
+          newCache[tweetId] = questions; 
+          updateState({ 
+            tweetContextCache: newCache,
+            // Reset fetching status for this tweetId, only if it was the one being fetched
+            fetchingQuestionsForTweetId: currentState.fetchingQuestionsForTweetId === tweetId ? null : currentState.fetchingQuestionsForTweetId,
+            loading: false // Potentially stop a global loading indicator if one was set for this
+          });
+        } else {
+          console.warn("[Sidepanel State] QUESTIONS_RECEIVED: Invalid payload", message.payload);
+        }
+      }
+
+      // NEW: Handle marking a tweetId as questions being fetched
+      if (message.type === 'MARK_FETCHING_QUESTIONS') {
+        if (message.payload && message.payload.tweetId) {
+          updateState({ fetchingQuestionsForTweetId: message.payload.tweetId });
+          console.log("[Sidepanel State] Marked fetching questions for tweetId:", message.payload.tweetId);
+        } else {
+          console.warn("[Sidepanel State] MARK_FETCHING_QUESTIONS: Invalid payload", message.payload);
+        }
+      }
+
+      // NEW: Handle clearing the fetching questions flag for a tweetId
+      if (message.type === 'CLEAR_FETCHING_QUESTIONS') {
+        if (message.payload && message.payload.tweetId) {
+          if (currentState.fetchingQuestionsForTweetId === message.payload.tweetId) {
+            updateState({ fetchingQuestionsForTweetId: null });
+            console.log("[Sidepanel State] Cleared fetching questions for tweetId:", message.payload.tweetId);
+          }
+        } else {
+          console.warn("[Sidepanel State] CLEAR_FETCHING_QUESTIONS: Invalid payload", message.payload);
+        }
       }
     });
   } catch (error) {
@@ -247,25 +332,32 @@ function generateReply() {
  * @param {string} sender - 'user' or 'ai'
  * @param {string} text - Message text
  * @param {Array} [allReplies] - Optional array of all AI-generated replies
+ * @param {Array} [guidingQuestions] - Optional array of guiding questions
  */
-export function addMessage(sender, text, allReplies = null) {
+export function addMessage(sender, text, allReplies = null, guidingQuestions = null) {
   const newMessage = {
+    id: Date.now(), // Simple unique ID
     sender,
     text,
-    id: Date.now()
+    allReplies: sender === 'ai' && allReplies ? allReplies : null,
+    guidingQuestions: sender === 'ai' && guidingQuestions ? guidingQuestions : null, // Store guiding questions
+    timestamp: new Date().toISOString(),
   };
-  
-  // If this is an AI message with multiple replies, add them
-  if (sender === 'ai' && allReplies && Array.isArray(allReplies)) {
-    newMessage.allReplies = allReplies;
-  }
-  
-  // Add message
+
   updateState({
-    messages: [...currentState.messages, newMessage]
+    messages: [...currentState.messages, newMessage],
+    loading: false, 
+    error: null,   
+    message: null, 
   });
-  
-  // Scroll to bottom (handled in UI)
+
+  // Auto-scroll to the latest message
+  // This might be better handled in the UI component that renders messages,
+  // but can be a simple utility here if direct DOM manipulation is acceptable.
+  const chatMessages = document.getElementById('chat-messages');
+  if (chatMessages) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
 }
 
 /**
