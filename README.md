@@ -1,4 +1,4 @@
-# X-Chat Chrome Extension
+# X-Polish Chrome Extension
 
 A Chrome Extension (Manifest v3) that adds a left-side "Messages-style" AI chat panel to X.com, helping you craft replies and original posts quickly.
 

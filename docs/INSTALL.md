@@ -1,6 +1,6 @@
-# Installation Guide for X-Chat
+# Installation Guide for X-Polish
 
-This guide will walk you through installing the X-Chat Chrome extension and setting up your OpenAI API key.
+This guide will walk you through installing the X-Polish Chrome extension and setting up your OpenAI API key.
 
 ## Loading the Extension
 
@@ -14,7 +14,7 @@ This guide will walk you through installing the X-Chat Chrome extension and sett
 
 4. Click "Load unpacked" and select the folder containing the extension files
 
-5. The extension should now appear in your extensions list with the X-Chat icon
+5. The extension should now appear in your extensions list with the X-Polish icon
 
 ### Method 2: Installing from Chrome Web Store (coming soon)
 
@@ -34,7 +34,7 @@ The extension requires an OpenAI API key to function:
 
 3. Click "Create new secret key" and copy the key (note: it will only be shown once)
 
-4. In Chrome, click the X-Chat extension icon in your toolbar to open the side panel
+4. In Chrome, click the X-Polish extension icon in your toolbar to open the side panel
 
 5. Click the settings icon (⚙️) in the top right of the panel
 

@@ -9,7 +9,7 @@ export function renderHeader({ onSettingsClick }) {
 
   const title = document.createElement("div");
   title.className = "header-title";
-  title.textContent = "X-Chat";
+  title.textContent = "X-Polish";
 
   const actions = document.createElement("div");
   actions.className = "header-actions";

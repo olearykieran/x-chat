@@ -45,58 +45,148 @@ function init() {
       return true;
     }
 
-    if (request.action === 'collectVoiceTrainingData') {
-      console.log('[XCO-Poster] Received request to collect voice training data from side panel.');
-      const activeUrl = request.activeTabUrl ? request.activeTabUrl : window.location.href;
+    if (request.action === "collectVoiceTrainingData") {
+      console.log(
+        "[XCO-Poster] Received request to collect voice training data from side panel."
+      );
+      const activeUrl = request.activeTabUrl
+        ? request.activeTabUrl
+        : window.location.href;
       const username = getProfileUsernameFromUrl(activeUrl);
-      const currentPath = request.activeTabUrl ? new URL(activeUrl).pathname : window.location.pathname;
+      const currentPath = request.activeTabUrl
+        ? new URL(activeUrl).pathname
+        : window.location.pathname;
       const currentTab = getCurrentProfileTab(username, currentPath);
-      const nonUserProfilePaths = ['home', 'explore', 'notifications', 'messages', 'settings', 'i', 'search', 'compose', 'logout', 'login', 'signup', 'tos', 'privacy', 'connect_people', 'verified_followers', 'followers_you_know', 'following', 'followers', 'lists', 'communities', 'premium_support', 'topics', 'moments', 'bookmarks', 'analytics'];
+      const nonUserProfilePaths = [
+        "home",
+        "explore",
+        "notifications",
+        "messages",
+        "settings",
+        "i",
+        "search",
+        "compose",
+        "logout",
+        "login",
+        "signup",
+        "tos",
+        "privacy",
+        "connect_people",
+        "verified_followers",
+        "followers_you_know",
+        "following",
+        "followers",
+        "lists",
+        "communities",
+        "premium_support",
+        "topics",
+        "moments",
+        "bookmarks",
+        "analytics",
+      ];
 
       if (username && nonUserProfilePaths.includes(username.toLowerCase())) {
-        console.log(`[XCO-Poster] Attempt to collect voice training data from non-user profile page: /${username}`);
-        sendResponse({ error: `This page ('/${username}') is not a user profile page suitable for voice training.` });
+        console.log(
+          `[XCO-Poster] Attempt to collect voice training data from non-user profile page: /${username}`
+        );
+        sendResponse({
+          error: `This page ('/${username}') is not a user profile page suitable for voice training.`,
+        });
         return true;
       }
 
       if (isOwnProfilePage(username, currentPath)) {
-        if (currentTab === 'posts' || currentTab === 'replies') {
-          console.log(`[XCO-Poster] Initiating voice training data collection from ${currentTab} tab (URL: ${request.activeTabUrl}).`);
+        if (currentTab === "posts" || currentTab === "replies") {
+          console.log(
+            `[XCO-Poster] Initiating voice training data collection from ${currentTab} tab (URL: ${request.activeTabUrl}).`
+          );
           // ... rest of the code
-          return true; 
+          return true;
         } else {
-          sendResponse({ error: `Voice training data can only be collected from Posts or Replies tabs. You are on '${currentTab || 'unknown'}' tab.` });
+          sendResponse({
+            error: `Voice training data can only be collected from Posts or Replies tabs. You are on '${
+              currentTab || "unknown"
+            }' tab.`,
+          });
         }
       } else {
-        sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
+        sendResponse({
+          error:
+            "Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.",
+        });
       }
       return true; // Indicates async response
     }
 
-    if (request.action === 'collectInterestData') {
-      console.log('[XCO-Poster] Received request to collect interest data from side panel.');
-      const activeUrl = request.activeTabUrl ? request.activeTabUrl : window.location.href;
+    if (request.action === "collectInterestData") {
+      console.log(
+        "[XCO-Poster] Received request to collect interest data from side panel."
+      );
+      const activeUrl = request.activeTabUrl
+        ? request.activeTabUrl
+        : window.location.href;
       const username = getProfileUsernameFromUrl(activeUrl);
-      const currentPath = request.activeTabUrl ? new URL(activeUrl).pathname : window.location.pathname;
+      const currentPath = request.activeTabUrl
+        ? new URL(activeUrl).pathname
+        : window.location.pathname;
       const currentTab = getCurrentProfileTab(username, currentPath);
-      const nonUserProfilePaths = ['home', 'explore', 'notifications', 'messages', 'settings', 'i', 'search', 'compose', 'logout', 'login', 'signup', 'tos', 'privacy', 'connect_people', 'verified_followers', 'followers_you_know', 'following', 'followers', 'lists', 'communities', 'premium_support', 'topics', 'moments', 'bookmarks', 'analytics'];
+      const nonUserProfilePaths = [
+        "home",
+        "explore",
+        "notifications",
+        "messages",
+        "settings",
+        "i",
+        "search",
+        "compose",
+        "logout",
+        "login",
+        "signup",
+        "tos",
+        "privacy",
+        "connect_people",
+        "verified_followers",
+        "followers_you_know",
+        "following",
+        "followers",
+        "lists",
+        "communities",
+        "premium_support",
+        "topics",
+        "moments",
+        "bookmarks",
+        "analytics",
+      ];
 
       if (username && nonUserProfilePaths.includes(username.toLowerCase())) {
-        console.log(`[XCO-Poster] Attempt to collect interest data from non-user profile page: /${username}`);
-        sendResponse({ error: `This page ('/${username}') is not a user profile page suitable for interest data collection.` });
+        console.log(
+          `[XCO-Poster] Attempt to collect interest data from non-user profile page: /${username}`
+        );
+        sendResponse({
+          error: `This page ('/${username}') is not a user profile page suitable for interest data collection.`,
+        });
         return true;
       }
 
       if (isOwnProfilePage(username, currentPath)) {
-        if (currentTab === 'likes') {
-          console.log(`[XCO-Poster] Initiating interest data collection from Likes tab (URL: ${request.activeTabUrl}).`);
+        if (currentTab === "likes") {
+          console.log(
+            `[XCO-Poster] Initiating interest data collection from Likes tab (URL: ${request.activeTabUrl}).`
+          );
           // ... rest of the code
-          return true; 
+          return true;
         } else {
-          sendResponse({ error: `Interest data can only be collected from the Likes tab. You are on '${currentTab || 'unknown'}' tab.` });
+          sendResponse({
+            error: `Interest data can only be collected from the Likes tab. You are on '${
+              currentTab || "unknown"
+            }' tab.`,
+          });
         }
       } else {
-        sendResponse({ error: 'Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.' });
+        sendResponse({
+          error:
+            "Not on your profile page, or unable to determine profile from URL. Please navigate to your profile.",
+        });
       }
       return true; // Indicates async response
     }
@@ -108,12 +198,12 @@ function init() {
  */
 function injectToggleButton() {
   // Check if already exists
-  if (document.getElementById("X-Chat-toggle")) return;
+  if (document.getElementById("X-Polish-toggle")) return;
 
   const button = document.createElement("button");
-  button.id = "X-Chat-toggle";
+  button.id = "X-Polish-toggle";
   button.innerHTML = `
-    <div class="X-Chat-toggle-icon">
+    <div class="X-Polish-toggle-icon">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
       </svg>
@@ -268,52 +358,124 @@ function insertTweetText(text) {
 }
 
 /**
- * Insert text into the tweet composer
+ * Insert text into the tweet composer or any focused input element
  * @param {string} text - The text to insert
  */
 function insertTextIntoComposer(text) {
-  const composer = document.querySelector('[data-testid="tweetTextarea_0"]');
-  if (composer) {
-    composer.focus();
+  // First try Twitter-specific composer
+  const twitterComposer = document.querySelector('[data-testid="tweetTextarea_0"]');
 
-    // Primary method: Directly set text and dispatch event
-    composer.textContent = text;
-    const inputEvent = new Event('input', { bubbles: true, cancelable: true });
-    const dispatched = composer.dispatchEvent(inputEvent);
+  if (twitterComposer) {
+    // Twitter-specific insertion
+    twitterComposer.focus();
+    twitterComposer.textContent = text;
+    const inputEvent = new Event("input", { bubbles: true, cancelable: true });
+    const dispatched = twitterComposer.dispatchEvent(inputEvent);
 
-    if (composer.textContent === text) {
-      console.log('[ContentScript] Text successfully inserted via direct manipulation and input event.');
-    } else {
-      console.warn('[ContentScript] Direct textContent manipulation might have failed. Trying clipboard fallback.');
-      // Fallback: Use clipboard API (original method)
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
-          // Simulate paste event
-          const pasted = document.execCommand('paste');
-          if (pasted && composer.textContent.includes(text)) {
-            console.log('[ContentScript] Text successfully inserted via clipboard paste fallback.');
-          } else {
-            console.error('[ContentScript] Clipboard paste fallback also failed or did not insert expected text.');
-          }
-        })
-        .catch((err) => {
-          console.error('[ContentScript] Failed to write to clipboard for fallback:', err);
-        });
+    if (twitterComposer.textContent === text) {
+      console.log("[ContentScript] Text successfully inserted into Twitter composer.");
+      return;
     }
-  } else {
-    console.error('[ContentScript] Composer element [data-testid="tweetTextarea_0"] not found.');
   }
+
+  // If we're not on Twitter or the Twitter-specific method failed, try generic approach
+  // Find currently focused element or common input elements
+  const activeElement = document.activeElement;
+  const isInputOrTextArea =
+    activeElement &&
+    (activeElement.tagName === "INPUT" ||
+      activeElement.tagName === "TEXTAREA" ||
+      activeElement.getAttribute("contenteditable") === "true");
+
+  if (isInputOrTextArea) {
+    // Handle different types of input elements
+    if (activeElement.tagName === "INPUT" || activeElement.tagName === "TEXTAREA") {
+      // For standard input/textarea elements
+      activeElement.value = text;
+      const inputEvent = new Event("input", { bubbles: true, cancelable: true });
+      activeElement.dispatchEvent(inputEvent);
+      console.log("[ContentScript] Text inserted into input/textarea element.");
+    } else if (activeElement.getAttribute("contenteditable") === "true") {
+      // For contenteditable elements
+      activeElement.textContent = text;
+      const inputEvent = new Event("input", { bubbles: true, cancelable: true });
+      activeElement.dispatchEvent(inputEvent);
+      console.log("[ContentScript] Text inserted into contenteditable element.");
+    }
+    return;
+  }
+
+  // If no active input element, try to find a common input field
+  const possibleInputs = [
+    document.querySelector("textarea"),
+    document.querySelector('input[type="text"]'),
+    document.querySelector('[contenteditable="true"]'),
+    document.querySelector(".public-DraftEditor-content"), // For Draft.js editors
+    document.querySelector(".ql-editor"), // For Quill editor
+  ].filter(Boolean);
+
+  if (possibleInputs.length > 0) {
+    const input = possibleInputs[0];
+    input.focus();
+
+    if (input.tagName === "INPUT" || input.tagName === "TEXTAREA") {
+      input.value = text;
+    } else {
+      input.textContent = text;
+    }
+
+    const inputEvent = new Event("input", { bubbles: true, cancelable: true });
+    input.dispatchEvent(inputEvent);
+    console.log("[ContentScript] Text inserted into found input element:", input.tagName);
+    return;
+  }
+
+  // Last resort: Use clipboard
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      console.log(
+        "[ContentScript] Text copied to clipboard. Please paste manually with Ctrl+V/Cmd+V."
+      );
+      // Show a notification to the user
+      const notification = document.createElement("div");
+      notification.textContent =
+        "Polished text copied to clipboard! Press Ctrl+V or Cmd+V to paste.";
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #1DA1F2;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      `;
+      document.body.appendChild(notification);
+
+      // Remove the notification after 5 seconds
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          document.body.removeChild(notification);
+        }
+      }, 5000);
+    })
+    .catch((err) => {
+      console.error("[ContentScript] Failed to copy text to clipboard:", err);
+    });
 }
 
 // Helper functions
 function getProfileUsernameFromUrl(url) {
-  const urlParts = url.split('/');
+  const urlParts = url.split("/");
   return urlParts[urlParts.length - 1];
 }
 
 function getCurrentProfileTab(username, currentPath) {
-  const pathParts = currentPath.split('/');
+  const pathParts = currentPath.split("/");
   if (pathParts.includes(username)) {
     return pathParts[pathParts.length - 1];
   }

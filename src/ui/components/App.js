@@ -147,24 +147,24 @@ function handleInputSend(text, mode) {
   setCurrentInputText(""); // Clear input
   setLoadingState(true);
 
-  // Always use Polish Reply mode
+  // Use GET_FINAL_REPLY for all websites
   chrome.runtime.sendMessage(
     {
-      type: "POLISH_REPLY",
+      type: "GET_FINAL_REPLY",
       contextTweet: tweet,
-      userDraft: text,
+      userText: text,
     },
     (response) => {
       setLoadingState(false);
 
       // Handle chrome runtime errors
       if (chrome.runtime.lastError) {
-        console.error("[App.js] Error sending POLISH_REPLY:", chrome.runtime.lastError);
-        setError("Error sending POLISH_REPLY: " + chrome.runtime.lastError.message);
+        console.error("[App.js] Error sending GET_FINAL_REPLY:", chrome.runtime.lastError);
+        setError("Error sending GET_FINAL_REPLY: " + chrome.runtime.lastError.message);
         return;
       }
 
-      console.log("[App.js] POLISH_REPLY full response:", response);
+      console.log("[App.js] GET_FINAL_REPLY full response:", response);
 
       // Handle the response - try multiple potential response formats
       if (response && response.reply) {

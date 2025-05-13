@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "X-Chat",
+  "name": "X-Polish",
   "version": "1.0.12",
   "description": "AI chat panel for X.com that helps you craft replies and original posts",
   "icons": {
@@ -20,10 +20,7 @@
     "declarativeNetRequest",
     "alarms"
   ],
-  "host_permissions": [
-    "https://*.x.com/*",
-    "https://api.openai.com/*"
-  ],
+  "host_permissions": ["https://*.x.com/*", "https://api.openai.com/*"],
   "background": {
     "service_worker": "bg.js",
     "type": "module"
@@ -35,7 +32,7 @@
     }
   ],
   "action": {
-    "default_title": "X-Chat",
+    "default_title": "X-Polish",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
