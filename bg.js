@@ -901,7 +901,14 @@ async function handleGetFinalReply(contextTweet, userText) {
     // Adjust prompt based on whether there's a tweet context
     const prompt = hasTweetContext
       ? `Tweet I'm replying to: "${contextTweet.tweetText}"\n\nMy input: "${userText}"\n\nGenerate a single, polished reply based on my input.`
-      : `Polish this text: "${userText}"\n\nGenerate a single, improved version that maintains the same tone and intent.`;
+      : `Polish and improve this text: "${userText}"\n\n
+      Your task is to significantly enhance this text by:\n
+      1. Improving grammar, flow, and clarity\n
+      2. Enhancing vocabulary and sentence structure\n
+      3. Fixing any awkward phrasing\n
+      4. Making it more engaging and impactful\n
+      5. Maintaining the original meaning, tone, and intent\n
+      Provide ONE clearly improved version.`;
 
     // Adjust system message based on whether there's a tweet context
     const systemMessage = hasTweetContext 
@@ -927,6 +934,9 @@ async function handleGetFinalReply(contextTweet, userText) {
       7. DO NOT add any metadata, prefixes, or explain what you're doing\n
       Just write the single polished text.`;
 
+    // Use higher temperature (more creativity) for text polishing mode
+    const temperature = hasTweetContext ? 0.7 : 0.85;
+    
     const finalReply = await callOpenAI(
       userSettings.apiKey,
       prompt,
@@ -937,7 +947,7 @@ async function handleGetFinalReply(contextTweet, userText) {
       [],
       systemMessage,
       "gpt-4.1-nano",
-      0.7
+      temperature
     );
 
     // Clean the reply of any AI-typical markers
