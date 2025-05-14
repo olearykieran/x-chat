@@ -61,13 +61,46 @@ export async function initializeState() {
     chrome.runtime.onMessage.addListener((message) => {
       console.log('[Sidepanel State] Received message:', message); // Log all messages
       if (message.type === 'TWEET_FOCUSED') {
-        console.log('[Sidepanel State] TWEET_FOCUSED received, tweetData:', message.tweetData);
-        updateState({ 
-          currentTweet: message.tweetData,
-          activeTab: 'reply',
-          messages: [] // Clear messages when tweet changes
-        });
+        // Store the tweet ID to track if we've already processed this tweet
+        const tweetId = message.tweetData?.tweetUrl || message.tweetData?.tweetText;
+        const lastProcessedTweetId = currentState.lastProcessedTweetId;
         
+        console.log('[Sidepanel State] Tweet focused:', message.tweetData, 'Last processed:', lastProcessedTweetId);
+        
+        // Only process if this is a different tweet than the last one we processed
+        if (tweetId !== lastProcessedTweetId) {
+          console.log('[Sidepanel State] Processing new tweet:', tweetId);
+          
+          updateState({ 
+            currentTweet: message.tweetData,
+            activeTab: 'reply',
+            messages: [], // Clear messages when tweet changes
+            loading: true, // Set loading state to true while generating suggestions
+            lastProcessedTweetId: tweetId // Track this tweet as processed
+          });
+          
+          // Automatically request reply suggestions when a tweet is focused
+          chrome.runtime.sendMessage(
+            { type: 'AUTO_REPLY_SUGGESTIONS', contextTweet: message.tweetData },
+            (response) => {
+              if (response && response.allReplies && response.allReplies.length > 0) {
+                console.log('[Sidepanel State] Received auto reply suggestions:', response.allReplies);
+                
+                // Add the suggestions to messages with a special 'suggestion' type
+                addMessage('ai', response.reply, response.allReplies, null, 'suggestion');
+                updateState({ loading: false });
+              } else if (response && response.error) {
+                console.error('[Sidepanel State] Error getting auto suggestions:', response.error);
+                updateState({ loading: false });
+              } else {
+                console.log('[Sidepanel State] No reply suggestions received');
+                updateState({ loading: false });
+              }
+            }
+          );
+        } else {
+          console.log('[Sidepanel State] Ignoring duplicate tweet focus event for:', tweetId);
+        }
       }
       
       if (message.type === 'COMPOSE_MODE') {
@@ -329,23 +362,25 @@ function generateReply() {
 
 /**
  * Add a message to the chat
- * @param {string} sender - 'user' or 'ai'
+ * @param {string} sender - Message sender ('user' or 'ai')
  * @param {string} text - Message text
  * @param {Array} [allReplies] - Optional array of all AI-generated replies
  * @param {Array} [guidingQuestions] - Optional array of guiding questions
+ * @param {string} [type] - Message type (e.g., 'reply', 'suggestion', 'instruction')
  */
-export function addMessage(sender, text, allReplies = null, guidingQuestions = null) {
-  const newMessage = {
-    id: Date.now(), // Simple unique ID
+export function addMessage(sender, text, allReplies = null, guidingQuestions = null, type = 'reply') {
+  const message = {
+    id: Date.now(),
     sender,
-    text,
-    allReplies: sender === 'ai' && allReplies ? allReplies : null,
-    guidingQuestions: sender === 'ai' && guidingQuestions ? guidingQuestions : null, // Store guiding questions
+    content: text,
+    allReplies: allReplies,
+    guidingQuestions: guidingQuestions,
     timestamp: new Date().toISOString(),
+    type: type
   };
 
   updateState({
-    messages: [...currentState.messages, newMessage],
+    messages: [...currentState.messages, message],
     loading: false, 
     error: null,   
     message: null, 

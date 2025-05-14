@@ -969,6 +969,84 @@ async function handleGetFinalReply(contextTweet, userText) {
 
 // --- Add Message Listener ---
 
+/**
+ * Generate multiple automatic reply suggestions for a tweet without user input
+ * @param {Object} contextTweet - The tweet being replied to
+ * @returns {Promise<Object>} - Response with multiple reply suggestions
+ */
+async function handleGetAutoReplySuggestions(contextTweet) {
+  const hasTweetContext = contextTweet && contextTweet.tweetText;
+  
+  console.log("[Background] Handling Auto Reply Suggestions request:", { 
+    tweetText: contextTweet?.tweetText || 'No tweet context',
+    hasTweetContext: !!hasTweetContext
+  });
+
+  if (!hasTweetContext) {
+    return { error: "No tweet context provided for generating suggestions." };
+  }
+
+  try {
+    // Construct prompt for generating multiple reply suggestions
+    const prompt = `Tweet I'm replying to: "${contextTweet.tweetText}"
+
+    Generate 3 completely different reply options that I could use to respond to this tweet.
+    Each reply should have a different angle, tone, or approach.`;
+
+    const systemMessage = `You are an expert X.com user who produces high-quality content. You will generate 3 distinct reply options in the style of a top content creator.
+
+    CRITICAL INSTRUCTIONS:
+    1. Create EXACTLY 3 reply options, separated by "###REPLY###"
+    2. DO NOT use hyphens or dashes of any kind (-, –, —). Use spaces instead
+    3. Make each reply directly address the ORIGINAL TWEET it's responding to
+    4. Avoid ANY generic AI-sounding language like "I understand", "I see", "That's interesting", etc
+    5. Each reply should take a different angle or approach to the tweet
+    6. DO NOT number your responses (e.g., "1.", "Option 1:", etc.)
+    7. DO NOT add any metadata, prefixes, or explain what you're doing
+    8. Each reply should sound like it was written by a human
+    9. Ensure all three replies are distinct from each other
+    
+    Just write the three replies separated by "###REPLY###" as they would appear on X.com.`;
+
+    const repliesText = await callOpenAI(
+      userSettings.apiKey,
+      prompt,
+      "conversational",
+      null,
+      userSettings.profileBio || "",
+      [],
+      [],
+      systemMessage,
+      "gpt-4.1-nano",
+      0.8 // Higher temperature for more variety
+    );
+
+    // Split and clean the replies
+    const replies = repliesText
+      .split("###REPLY###")
+      .map(reply => reply.trim())
+      .filter(reply => reply.length > 0)
+      .map(reply => reply.replace(/[-\u2013\u2014]/g, " ").replace(/\s+/g, " "));
+
+    // Ensure we have at least one reply
+    if (replies.length === 0) {
+      replies.push("I'd love to share my thoughts on this!");
+    }
+
+    // Limit to 3 replies
+    const limitedReplies = replies.slice(0, 3);
+
+    return {
+      reply: limitedReplies[0], // First reply is the primary one
+      allReplies: limitedReplies,
+      originalMode: "auto"
+    };
+  } catch (error) {
+    console.error("[Background] Error in handleGetAutoReplySuggestions:", error);
+    return { error: error.message || "Failed to generate reply suggestions" };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Background] Received message:", message);
 
@@ -1079,6 +1157,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       isAsync = true;
       break;
       
+    case "AUTO_REPLY_SUGGESTIONS":
+      console.log("[Background] Handling AUTO_REPLY_SUGGESTIONS message");
+      handleGetAutoReplySuggestions(message.contextTweet)
+        .then((response) => {
+          console.log("[Background] Sending AUTO_REPLY_SUGGESTIONS response:", response);
+          sendResponse(response);
+        })
+        .catch((error) => {
+          console.error("[Background] Error handling AUTO_REPLY_SUGGESTIONS:", error);
+          sendResponse({ error: error.message || "Unknown error" });
+        });
+      isAsync = true;
+      break;
+        
     case "TWEET_FOCUSED":
       console.log("[Background] Handling TWEET_FOCUSED message");
       // Simply acknowledge the message - the sidepanel state.js already handles updating the UI

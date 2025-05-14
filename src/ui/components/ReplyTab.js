@@ -4,7 +4,14 @@
  * @returns {HTMLElement} - Reply tab element
  */
 export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetContextCache, fetchingQuestionsForTweetId }) {
-  console.log("[ReplyTab] renderReplyTab called. isLoading:", isLoading, "Fetching for:", fetchingQuestionsForTweetId);
+  // Debug log to help track component rendering
+  console.log("[ReplyTab] renderReplyTab called with:", { 
+    hasTweet: !!tweet, 
+    messageCount: messages?.length || 0, 
+    isLoading, 
+    fetchingQuestionsForTweetId 
+  });
+  
   const container = document.createElement("div");
 
   // If no tweet is selected but we have messages to show, still render the chat
@@ -14,9 +21,6 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
     return container;
   }
   
-  // If no tweet is selected but we have messages, don't render the tweet card
-  // but still show the conversation
-
   // Tweet card - only render if a tweet is present
   if (tweet) {
     const tweetCard = document.createElement("div");
@@ -38,6 +42,71 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
     container.appendChild(tweetCard);
   }
 
+  // --- Auto-generated Reply Suggestions Section --- only show if we have suggestion messages
+  // and no user-submitted messages yet (we only want to show suggestions on initial load)
+  if (messages && messages.length > 0) {
+    // Check if there are any user messages (which would indicate a conversation has started)
+    const hasUserMessages = messages.some(msg => msg.sender === 'user');
+    const hasAIReplies = messages.some(msg => msg.sender === 'ai' && msg.type === 'reply');
+    
+    // Only show suggestions if there are no user messages or AI replies yet
+    if (!hasUserMessages && !hasAIReplies) {
+      // Get all suggestion messages but only use the first one to avoid duplicates
+      const suggestionMessages = messages.filter(msg => msg.type === 'suggestion' && msg.sender === 'ai' && msg.allReplies);
+      
+      if (suggestionMessages.length > 0) {
+        console.log("[ReplyTab] Found suggestion messages:", suggestionMessages.length);
+        const suggestionMessage = suggestionMessages[0]; // Only use the first one
+        
+        if (suggestionMessage.allReplies && suggestionMessage.allReplies.length > 0) {
+          const suggestionsSection = document.createElement("div");
+          suggestionsSection.className = "suggestions-section";
+          suggestionsSection.style.marginBottom = "24px";
+          
+          const suggestionsTitle = document.createElement("h3");
+          suggestionsTitle.textContent = "Reply Suggestions";
+          suggestionsTitle.style.fontSize = "16px";
+          suggestionsTitle.style.fontWeight = "600";
+          suggestionsTitle.style.marginBottom = "12px";
+          suggestionsTitle.style.color = "#e7e9ea";
+          suggestionsSection.appendChild(suggestionsTitle);
+          
+          // Create cards for each suggestion
+          suggestionMessage.allReplies.forEach((reply, index) => {
+            const suggestionCard = document.createElement("div");
+            suggestionCard.className = "suggestion-card slide-in";
+            suggestionCard.style.animationDelay = `${index * 0.1}s`;
+            
+            const suggestionNumber = document.createElement("div");
+            suggestionNumber.className = "suggestion-number";
+            suggestionNumber.textContent = String(index + 1);
+            suggestionCard.appendChild(suggestionNumber);
+            
+            const suggestionText = document.createElement("div");
+            suggestionText.className = "suggestion-text";
+            suggestionText.textContent = reply;
+            suggestionCard.appendChild(suggestionText);
+            
+            // Add Use Reply button for each suggestion
+            const messageActions = document.createElement("div");
+            messageActions.className = "message-actions";
+            
+            const useButton = document.createElement("button");
+            useButton.className = "message-button";
+            useButton.textContent = "Use Reply";
+            useButton.onclick = () => onUseReply(reply);
+            messageActions.appendChild(useButton);
+            
+            suggestionCard.appendChild(messageActions);
+            suggestionsSection.appendChild(suggestionCard);
+          });
+          
+          container.appendChild(suggestionsSection);
+        }
+      }
+    }
+  }
+  
   // --- Brainstorming Questions Section --- only show if a tweet is present
   if (tweet) {
     const tweetId = tweet.tweetUrl || tweet.tweetText;
@@ -115,8 +184,49 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
     container.appendChild(questionsSectionContainer);
   }
   
-  // Show a title for the text polisher when not on an X tweet
-  if (!tweet && messages && messages.length > 0) {
+  // Chat message area for regular messages (excluding suggestions which are handled separately)
+  // Only render this section if there are actual conversation messages (user input or AI replies)
+  const conversationMessages = messages ? messages.filter(msg => msg.type !== 'suggestion') : [];
+  
+  if (conversationMessages.length > 0) {
+    const chatArea = document.createElement("div");
+    chatArea.className = "chat-area";
+    chatArea.style.marginTop = "16px";
+    
+    // Render all regular chat messages (excluding suggestion-type messages)
+    conversationMessages.forEach(msg => {
+      const messageCard = document.createElement("div");
+      messageCard.className = `message-card ${msg.sender === 'user' ? 'user-message' : 'ai-message'}`;
+      
+      const messageText = document.createElement("div");
+      messageText.className = "message-text";
+      messageText.textContent = msg.content;
+      messageCard.appendChild(messageText);
+      
+      // Add Use Reply button only to AI messages of type 'reply'
+      if (msg.sender === 'ai' && msg.type === 'reply') {
+        const messageActions = document.createElement("div");
+        messageActions.className = "message-actions";
+        
+        const useButton = document.createElement("button");
+        useButton.className = "message-button";
+        useButton.textContent = "Use Reply";
+        useButton.onclick = () => onUseReply(msg.content);
+        messageActions.appendChild(useButton);
+        
+        messageCard.appendChild(messageActions);
+      }
+      
+      chatArea.appendChild(messageCard);
+    });
+    
+    container.appendChild(chatArea);
+  }
+  
+  // Show a title for the text polisher when not on an X tweet and we have actual conversation messages
+  const hasConversationMessages = messages ? messages.some(msg => msg.type !== 'suggestion') : false;
+  
+  if (!tweet && hasConversationMessages) {
     const textPolisherTitle = document.createElement("div");
     textPolisherTitle.className = "text-polisher-title";
     textPolisherTitle.textContent = "Text Polisher Mode";
@@ -124,138 +234,29 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
     textPolisherTitle.style.fontWeight = "bold";
     textPolisherTitle.style.marginBottom = "16px";
     textPolisherTitle.style.textAlign = "center";
-    textPolisherTitle.style.color = "#1DA1F2";
+    textPolisherTitle.style.color = "#e7e9ea";
     container.appendChild(textPolisherTitle);
-    
-    const textPolisherDescription = document.createElement("div");
-    textPolisherDescription.className = "text-polisher-description";
-    textPolisherDescription.textContent = "Enter text below to have it polished and improved.";
-    textPolisherDescription.style.fontSize = "14px";
-    textPolisherDescription.style.marginBottom = "16px";
-    textPolisherDescription.style.textAlign = "center";
-    textPolisherDescription.style.color = "#8899a6";
-    container.appendChild(textPolisherDescription);
+  }
+  
+  // Loading indicator if applicable
+  if (isLoading) {
+    const loadingIndicator = document.createElement("div");
+    loadingIndicator.className = "loading-indicator";
+    loadingIndicator.textContent = "Generating replies...";
+    loadingIndicator.style.padding = "16px";
+    loadingIndicator.style.textAlign = "center";
+    loadingIndicator.style.color = "#8899a6";
+    container.appendChild(loadingIndicator);
   }
 
-  // Results container for displaying AI-generated content
-  const resultsContainer = document.createElement("div");
-  resultsContainer.className = "results-container";
-
-  // Check if we have AI messages with suggestions
-  const aiMessages = messages.filter((msg) => msg.sender === "ai");
-  if (aiMessages.length > 0) {
-    // Find the most recent AI message
-    const latestAIMessage = aiMessages[aiMessages.length - 1];
-
-    // Check if we have multiple suggestions in the allReplies property
-    const allReplies = latestAIMessage.allReplies || [latestAIMessage.text];
-
-    // Add a title based on the message type
-    const resultsTitle = document.createElement("h3");
-    resultsTitle.className = "results-title";
-    resultsTitle.textContent =
-      allReplies.length > 1 ? "Polished Reply Options" : "AI-Written Reply";
-    resultsContainer.appendChild(resultsTitle);
-
-    // Render each suggestion as a card
-    allReplies.forEach((reply, index) => {
-      const suggestionCard = document.createElement("div");
-      suggestionCard.className = "suggestion-card slide-in";
-
-      // Only show numbers if there are multiple options
-      if (allReplies.length > 1) {
-        const suggestionNumber = document.createElement("div");
-        suggestionNumber.className = "suggestion-number";
-        suggestionNumber.textContent = `${index + 1}`;
-        suggestionCard.appendChild(suggestionNumber);
-      }
-
-      // Suggestion text
-      const suggestionText = document.createElement("div");
-      suggestionText.className = "suggestion-text";
-
-      // Final cleanup of any hyphens/dashes that might have slipped through all the way to UI
-      let cleanedReply = reply.replace(/[-\u2013\u2014]/g, " ").replace(/\s+/g, " ");
-
-      suggestionText.textContent = cleanedReply;
-      suggestionCard.appendChild(suggestionText);
-
-      // Actions for this suggestion
-      const actionsEl = document.createElement("div");
-      actionsEl.className = "message-actions";
-
-      const useButton = document.createElement("button");
-      useButton.className = "message-button";
-      useButton.textContent = "Use Reply";
-      useButton.addEventListener("click", () => {
-        console.log("[ReplyTab] Use Reply button clicked with text:", cleanedReply);
-        // Direct implementation to avoid dependency on state
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]) {
-            console.log(
-              "[ReplyTab] Sending USE_REPLY message directly to tab:",
-              tabs[0].id
-            );
-            chrome.tabs.sendMessage(
-              tabs[0].id,
-              {
-                type: "USE_REPLY",
-                text: cleanedReply,
-              },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  console.log(
-                    "[ReplyTab] Error in USE_REPLY response:",
-                    chrome.runtime.lastError.message
-                  );
-                  return;
-                }
-                console.log("[ReplyTab] USE_REPLY response:", response);
-              }
-            );
-          }
-        });
-
-        if (onUseReply) {
-          onUseReply(cleanedReply);
-        }
-      });
-
-      const copyButton = document.createElement("button");
-      copyButton.className = "message-button";
-      copyButton.textContent = "Copy";
-      copyButton.addEventListener("click", () => {
-        navigator.clipboard.writeText(cleanedReply);
-        copyButton.textContent = "Copied!";
-        setTimeout(() => {
-          copyButton.textContent = "Copy";
-        }, 2000);
-      });
-
-      actionsEl.appendChild(useButton);
-      actionsEl.appendChild(copyButton);
-      suggestionCard.appendChild(actionsEl);
-
-      resultsContainer.appendChild(suggestionCard);
-    });
-  } else {
-    // If there are messages but none from AI
-    const noSuggestions = document.createElement("div");
-    noSuggestions.className = "empty-state-text";
-    noSuggestions.textContent = "No AI suggestions available yet.";
-    resultsContainer.appendChild(noSuggestions);
-  }
-
-  container.appendChild(resultsContainer);
-
-  // Add styles
+  // Add styles to the document head
   const styleElement = document.createElement("style");
   styleElement.textContent = `
     .tweet-card {
       margin-bottom: 16px;
       padding: 12px;
       border-radius: var(--border-radius);
-      background-color: var(--hover-color);
+      background-color: var(--color-bg-tertiary);
       border: 1px solid var(--border-color);
     }
     
@@ -294,26 +295,36 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
       border-color: var(--primary-color);
     }
     
-    .results-container {
+    .chat-area {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
       margin-top: 16px;
+    }
+    
+    .message-card {
       padding: 12px;
-      border-radius: var(--border-radius);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      animation: slideIn 0.3s ease-out forwards;
+    }
+    
+    .user-message {
+      background-color: rgba(29, 161, 242, 0.1);
+      border: 1px solid rgba(29, 161, 242, 0.2);
+      align-self: flex-end;
+      margin-left: 20px;
+    }
+    
+    .ai-message {
       background-color: var(--hover-color);
       border: 1px solid var(--border-color);
+      align-self: flex-start;
+      margin-right: 20px;
     }
     
-    .instructions {
-      color: #8899a6;
-      font-size: 14px;
-      text-align: center;
-      padding: 16px;
-    }
-    
-    .results-title {
-      margin: 0 0 12px 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: #e7e9ea;
+    .suggestions-section {
+      margin-bottom: 24px;
     }
     
     .suggestion-card {
@@ -370,6 +381,28 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
       background-color: var(--hover-color);
     }
     
+    .results-container {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: var(--border-radius);
+      background-color: var(--hover-color);
+      border: 1px solid var(--border-color);
+    }
+    
+    .instructions {
+      color: #8899a6;
+      font-size: 14px;
+      text-align: center;
+      padding: 16px;
+    }
+    
+    .results-title {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #e7e9ea;
+    }
+    
     .slide-in {
       animation: slideIn 0.3s ease-out forwards;
     }
@@ -377,6 +410,26 @@ export function renderReplyTab({ tweet, messages, onUseReply, isLoading, tweetCo
     @keyframes slideIn {
       from { transform: translateY(20px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 16px;
+      color: #8899a6;
+      text-align: center;
+    }
+    
+    .empty-state-icon {
+      margin-bottom: 16px;
+      color: #8899a6;
+    }
+    
+    .empty-state-text {
+      font-size: 16px;
+      font-weight: 500;
     }
   `;
   document.head.appendChild(styleElement);
