@@ -885,9 +885,12 @@ async function handleGenerateQuestionsRequest(contextTweet, sendResponse) {
  * @returns {Promise<Object>} - Response with the generated reply
  */
 async function handleGetFinalReply(contextTweet, userText) {
+  const hasTweetContext = contextTweet && contextTweet.tweetText;
+  
   console.log("[Background] Handling Get Final Reply request:", { 
-    tweetText: contextTweet?.tweetText,
-    userText: userText 
+    tweetText: contextTweet?.tweetText || 'No tweet context',
+    userText: userText,
+    hasTweetContext: !!hasTweetContext
   });
 
   if (!userText || userText.trim().length === 0) {
@@ -895,19 +898,34 @@ async function handleGetFinalReply(contextTweet, userText) {
   }
 
   try {
-    const prompt = `Tweet I'm replying to: "${contextTweet?.tweetText || ''}"\n\nMy input: "${userText}"\n\nGenerate a single, polished reply based on my input.`;
+    // Adjust prompt based on whether there's a tweet context
+    const prompt = hasTweetContext
+      ? `Tweet I'm replying to: "${contextTweet.tweetText}"\n\nMy input: "${userText}"\n\nGenerate a single, polished reply based on my input.`
+      : `Polish this text: "${userText}"\n\nGenerate a single, improved version that maintains the same tone and intent.`;
 
-    const systemMessage = `You are an expert X.com user who produces high-quality content. You will generate ONE reply in the style of a top content creator.\n\n
-    CRITICAL INSTRUCTIONS:\n
-    1. Create exactly ONE reply based on the user's input and the context of the tweet they're replying to\n
-    2. DO NOT use hyphens or dashes of any kind (-, –, —). Use spaces instead\n
-    3. Make the reply directly address the ORIGINAL TWEET it's responding to\n
-    4. Avoid ANY generic AI-sounding language like "I understand", "I see", "That's interesting", etc\n
-    5. Your reply should be concise but contextually relevant to both the original tweet and the user's input\n
-    6. DO NOT include multiple options or variations\n
-    7. DO NOT number your response or use bullet points\n
-    8. DO NOT add any metadata, prefixes, or explain what you're doing\n
-    Just write the single reply as it would appear on X.com.`;
+    // Adjust system message based on whether there's a tweet context
+    const systemMessage = hasTweetContext 
+      ? `You are an expert X.com user who produces high-quality content. You will generate ONE reply in the style of a top content creator.\n\n
+      CRITICAL INSTRUCTIONS:\n
+      1. Create exactly ONE reply based on the user's input and the context of the tweet they're replying to\n
+      2. DO NOT use hyphens or dashes of any kind (-, –, —). Use spaces instead\n
+      3. Make the reply directly address the ORIGINAL TWEET it's responding to\n
+      4. Avoid ANY generic AI-sounding language like "I understand", "I see", "That's interesting", etc\n
+      5. Your reply should be concise but contextually relevant to both the original tweet and the user's input\n
+      6. DO NOT include multiple options or variations\n
+      7. DO NOT number your response or use bullet points\n
+      8. DO NOT add any metadata, prefixes, or explain what you're doing\n
+      Just write the single reply as it would appear on X.com.`
+      : `You are a skilled text polisher who improves text while maintaining the original voice and intent.\n\n
+      CRITICAL INSTRUCTIONS:\n
+      1. Create exactly ONE polished version of the user's input\n
+      2. DO NOT use hyphens or dashes of any kind (-, –, —). Use spaces instead\n
+      3. Avoid ANY generic AI-sounding language like "I understand", "I see", "That's interesting", etc\n
+      4. Maintain the same tone, intent, and style of the original text\n
+      5. DO NOT include multiple options or variations\n
+      6. DO NOT number your response or use bullet points\n
+      7. DO NOT add any metadata, prefixes, or explain what you're doing\n
+      Just write the single polished text.`;
 
     const finalReply = await callOpenAI(
       userSettings.apiKey,
@@ -1065,10 +1083,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     // Add other message types if needed
 
+    case "GET_SETTINGS":
+      console.log("[Background] Handling GET_SETTINGS message");
+      sendResponse({ 
+        settings: {
+          apiKey: userSettings.apiKey,
+          useOwnKey: userSettings.useOwnKey,
+          tone: userSettings.tone,
+          profileBio: userSettings.profileBio || ""
+        } 
+      });
+      break;
+      
     default:
       console.log("[Background] Unhandled message type:", message.type);
-      // Optionally send a response for unhandled types if needed
-      // sendResponse({ error: "Unhandled message type" });
+      // Send a response for unhandled types to avoid port closing errors
+      sendResponse({ error: "Unhandled message type" });
       break;
   }
 
